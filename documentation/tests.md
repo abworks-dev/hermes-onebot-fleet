@@ -2,22 +2,36 @@
 
 ## Existing coverage
 
-Offline Windows run: **42 tests passed, 39 subtests passed** on Python 3.12. Real installed Hermes
-contract probe on Python 3.14 passed without network startup or profile modifications.
+Offline Windows run: **45 tests passed, 39 subtests passed** on Python 3.12; Ruff lint and format checks passed.
+Real installed Hermes contract probe on Python 3.14 passed without network startup or profile modifications.
+
+Historical local live acceptance on 2026-10-18 used the same implementation before identifier renaming:
+three real user group messages exercised primary reply, standby handling @primary after disabling the
+primary OneBot service, and return to primary after restoration. The ledger recorded exactly
+**3 handed_off / 3 sent**. Account IDs and private deployment details are not published. This is narrow
+local evidence, not a production verdict or proof of other features; the renamed version's
+model-generated messages and failover path still require retesting.
+
+Post-rename local check on 2026-10-18: both authenticated OneBot connections reported the
+expected account identity, online/good status and membership in the allowed test group.
+The renamed plugin passed the real-host contract probe and profile doctor; current owner/group
+allowlists and disabled tool access were rechecked. This is connection/policy evidence only;
+no post-rename model-generated message or three-step failover acceptance is claimed.
 
 | Use case / rule | Expected deny or success | Evidence | Status |
 |---|---|---|---|
-| Local account configuration | Reject non-loopback, URL credentials, invalid IDs/weak token/type/unknown fields | [Policy tests](../tests/test_policy.py), [config](../src/hermes_qq_failover/config.py) | Existing automated unit |
-| User AND group and @ | Unauthorized user/group, fake CQ/@all, bot/self sender, bad structured events denied | [Policy tests](../tests/test_policy.py), [protocol](../src/hermes_qq_failover/protocol.py) | Existing automated unit |
+| Local account configuration | Reject non-loopback, URL credentials, invalid IDs/weak token/type/unknown fields | [Policy tests](../tests/test_policy.py), [config](../src/hermes_onebot_fleet/config.py) | Existing automated unit |
+| User AND group and @ | Unauthorized user/group, fake CQ/@all, bot/self sender, bad structured events denied | [Policy tests](../tests/test_policy.py), [protocol](../src/hermes_onebot_fleet/protocol.py) | Existing automated unit |
 | Recovered queued authorization | Revoked owner/group/namespace/mention rejected; drain marks denied without host invocation | [Recovery tests](../tests/test_recovery_policy.py), [adapter tests](../tests/test_adapter.py) | Existing automated unit |
-| Authenticated socket | Bearer auth, login identity, online status, reconnect, RPC echo, timeout/disconnect without replay | [Transport tests](../tests/test_transport.py), [transport](../src/hermes_qq_failover/transport.py) | Existing loopback integration, no QQ |
-| Account selection | Offline primary skipped; group membership preflight may examine standby | [Adapter tests](../tests/test_adapter.py), [adapter](../src/hermes_qq_failover/adapter.py) | Existing host-double unit |
+| Authenticated socket | Bearer auth, login identity, online status, reconnect, RPC echo, timeout/disconnect without replay | [Transport tests](../tests/test_transport.py), [transport](../src/hermes_onebot_fleet/transport.py) | Existing loopback integration, no QQ |
+| Account selection | Offline primary skipped; group membership preflight may examine standby | [Adapter tests](../tests/test_adapter.py), [adapter](../src/hermes_onebot_fleet/adapter.py) | Existing host-double unit |
 | Uncertain side effect | No second-account send after timeout/cancellation; native immediate fallback suppressed | [Adapter tests](../tests/test_adapter.py), [host probe](../tools/probe_hermes.py) | Existing automated unit + local real-host probe |
 | Reply identity | Same answer to different canonical reply anchors is not suppressed by stale native task context | [Adapter tests](../tests/test_adapter.py) | Existing automated unit |
-| Persistent ledger | One atomic claim, queued-only recovery, sending -> uncertain, handed_off not requeued | [Store tests](../tests/test_store.py), [store](../src/hermes_qq_failover/store.py) | Existing automated unit |
-| Source staging | Existing profile config and credentials unchanged; invalid profile/missing status DB denied; existing plugin refuses overwrite | [CLI tests](../tests/test_cli.py), [CLI](../src/hermes_qq_failover/cli.py) | Existing temporary-profile integration |
-| One process owner | Second OS file lock fails; release permits takeover | [Store tests](../tests/test_store.py), [lock](../src/hermes_qq_failover/lock.py) | Existing Windows unit |
-| Native registration | Real adapter ABC, platform registration/config, canonical source and empty metadata | [Host probe](../tools/probe_hermes.py), [plugin](../src/hermes_qq_failover/plugin.py) | Existing local real-host probe, not full gateway E2E |
+| Persistent ledger | One atomic claim, queued-only recovery, sending -> uncertain, handed_off not requeued | [Store tests](../tests/test_store.py), [store](../src/hermes_onebot_fleet/store.py) | Existing automated unit |
+| Source staging | Existing profile config and credentials unchanged; invalid profile/missing status DB denied; existing plugin refuses overwrite | [CLI tests](../tests/test_cli.py), [CLI](../src/hermes_onebot_fleet/cli.py) | Existing temporary-profile integration |
+| One process owner | Second OS file lock fails; release permits takeover | [Store tests](../tests/test_store.py), [lock](../src/hermes_onebot_fleet/lock.py) | Existing Windows unit |
+| Native registration | Real adapter ABC, platform registration/config, canonical source and empty metadata | [Host probe](../tools/probe_hermes.py), [plugin](../src/hermes_onebot_fleet/plugin.py) | Existing local real-host probe, not full gateway E2E |
+| Two real QQ accounts, pre-rename | Primary reply; disable primary OneBot service and @primary reaches standby; restore primary and replies return; exactly 3 handed_off / 3 sent | Historical local acceptance, 2026-10-18; [architecture](architecture.md) | Narrow guarded live pass before rename; renamed-version retest pending |
 
 [CI](../.github/workflows/tests.yml) runs offline tests and lint on Windows/Linux. This workflow is
 included, but its remote result and branch protection have not been verified; it is not yet an
@@ -27,10 +41,10 @@ enforced merge gate. Real-Hermes probe is local-only because CI does not vendor 
 
 | Use case | Rule / expected negative | Evidence | Type / status |
 |---|---|---|---|
-| Two real QQ accounts | No double ingress; primary offline before send selects standby; both offline reports failure | [Architecture](architecture.md), [adapter](../src/hermes_qq_failover/adapter.py) | Guarded live / proposed |
+| Renamed-version two-account regression | Recheck connection, primary/standby/return path and no double ingress; additionally verify both-offline failure | [Architecture](architecture.md), [adapter](../src/hermes_onebot_fleet/adapter.py) | Guarded live / pending; historical three-message pass does not cover both-offline failure |
 | Native owner controls | Unauthorized approvals denied; owner @ text clarification, commands and interrupt reach native flow | [Permissions](permissions.md), [flows](flows.md) | Guarded live / proposed |
-| Profile isolation | Distinct secret scope, ledger, namespace and user session prevent cross-profile access | [Variables](variables.md), [adapter](../src/hermes_qq_failover/adapter.py) | Real-host integration / proposed |
-| Managed PM enablement | PM resolves staged dependency without core mutation | [CLI](../src/hermes_qq_failover/cli.py) | Real-host integration / proposed |
+| Profile isolation | Distinct secret scope, ledger, namespace and user session prevent cross-profile access | [Variables](variables.md), [adapter](../src/hermes_onebot_fleet/adapter.py) | Real-host integration / proposed |
+| Managed PM enablement | PM resolves staged dependency without core mutation | [CLI](../src/hermes_onebot_fleet/cli.py) | Real-host integration / proposed |
 | Sensitive storage | Operator confirms filesystem ACLs, retention policy and backup permissions | [Variables](variables.md) | Manual review / proposed |
 
 ## Gaps / not a green shipping verdict

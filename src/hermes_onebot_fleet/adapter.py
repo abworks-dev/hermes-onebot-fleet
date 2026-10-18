@@ -22,19 +22,19 @@ from .store import Store
 from .transport import ActionError, ActionUncertain, OneBotConnection
 
 log = logging.getLogger(__name__)
-INGRESS = ContextVar("qq_failover_ingress", default=None)
+INGRESS = ContextVar("onebot_fleet_ingress", default=None)
 
 
 def target(logical_id: str, kind: str, identifier: str) -> str:
     if kind not in {"private", "group"}:
         raise ValueError("invalid target type")
-    return f"qqf:{logical_id}:{kind}:{qq_id(identifier)}"
+    return f"obf:{logical_id}:{kind}:{qq_id(identifier)}"
 
 
 def parse_target(value: str, logical_id: str | None = None):
     parts = value.split(":")
-    if len(parts) != 4 or parts[0] != "qqf" or parts[2] not in {"group", "private"}:
-        raise ValueError("target must be qqf:<logical_id>:private|group:<QQ id>")
+    if len(parts) != 4 or parts[0] != "obf" or parts[2] not in {"group", "private"}:
+        raise ValueError("target must be obf:<logical_id>:private|group:<QQ id>")
     if logical_id is not None and parts[1] != logical_id:
         raise ValueError("target belongs to another logical adapter")
     if not parts[1] or any(
@@ -44,9 +44,9 @@ def parse_target(value: str, logical_id: str | None = None):
     return parts[1], parts[2], qq_id(parts[3])
 
 
-class QQFailoverAdapter(BasePlatformAdapter):
+class OneBotFleetAdapter(BasePlatformAdapter):
     def __init__(self, config, *, receive_events=True):
-        super().__init__(config, Platform("qq_failover"))
+        super().__init__(config, Platform("onebot_fleet"))
         from gateway.platforms._shared import get_scoped_secret
         from hermes_constants import get_hermes_home
 
@@ -57,7 +57,7 @@ class QQFailoverAdapter(BasePlatformAdapter):
             account.resolve_token(secrets)
         path = self.settings.state_path
         if not path.is_absolute():
-            path = Path(get_hermes_home()) / "plugin-data" / "qq-failover" / path
+            path = Path(get_hermes_home()) / "plugin-data" / "onebot-fleet" / path
         self._path = path
         self._lock = InstanceLock(str(path) + ".lock")
         self._store = None

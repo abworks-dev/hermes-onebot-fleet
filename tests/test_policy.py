@@ -4,15 +4,20 @@ import os
 import unittest
 from unittest.mock import patch
 
-from hermes_qq_failover.config import Account, Settings
-from hermes_qq_failover.protocol import normalize_event
+from hermes_onebot_fleet.config import Account, Settings
+from hermes_onebot_fleet.protocol import normalize_event
 
 
 def config(**overrides):
     result = {
         "accounts": [
-            {"id": "1001", "ws_url": "ws://127.0.0.1:12345", "token_env": "QQ_TEST_TOKEN"},
-            {"id": "1002", "ws_url": "ws://[::1]:12345", "token_env": "QQ_OTHER_TOKEN", "priority": 1},
+            {"id": "1001", "ws_url": "ws://127.0.0.1:12345", "token_env": "ONEBOT_FLEET_TEST_TOKEN"},
+            {
+                "id": "1002",
+                "ws_url": "ws://[::1]:12345",
+                "token_env": "ONEBOT_FLEET_OTHER_TOKEN",
+                "priority": 1,
+            },
         ],
         "allowed_users": ["2001"],
         "allowed_groups": ["3001"],
@@ -48,7 +53,7 @@ class ConfigTests(unittest.TestCase):
             )
         )
         self.assertTrue(settings.require_mention)
-        self.assertEqual(settings.logical_id, "qq-failover")
+        self.assertEqual(settings.logical_id, "onebot-fleet")
         self.assertFalse(settings.allowed_users)
         self.assertIsNone(normalize_event(event(), settings.accounts[0], settings))
         with self.assertRaises(ValueError):
@@ -97,15 +102,15 @@ class ConfigTests(unittest.TestCase):
 
     def test_lazy_tokens_never_in_repr_or_error(self):
         account = Settings.from_mapping(config()).accounts[0]
-        with patch.dict(os.environ, {"QQ_TEST_TOKEN": "a" * 16}):
+        with patch.dict(os.environ, {"ONEBOT_FLEET_TEST_TOKEN": "a" * 16}):
             self.assertEqual(account.resolve_token(), "a" * 16)
-            os.environ["QQ_TEST_TOKEN"] = "b" * 16
+            os.environ["ONEBOT_FLEET_TEST_TOKEN"] = "b" * 16
             self.assertEqual(account.resolve_token(), "b" * 16)
-        self.assertEqual(account.resolve_token({"QQ_TEST_TOKEN": "x" * 16}), "x" * 16)
+        self.assertEqual(account.resolve_token({"ONEBOT_FLEET_TEST_TOKEN": "x" * 16}), "x" * 16)
         self.assertNotIn("x" * 16, repr(account))
         for value in (None, "short", "a" * 16 + "\n"):
             with self.assertRaises(ValueError) as error:
-                account.resolve_token({"QQ_TEST_TOKEN": value})
+                account.resolve_token({"ONEBOT_FLEET_TEST_TOKEN": value})
             if value:
                 self.assertNotIn(value, str(error.exception))
 

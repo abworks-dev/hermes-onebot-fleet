@@ -16,7 +16,7 @@ from gateway.platform_registry import PlatformEntry
 from gateway.platform_registry import platform_registry as registry
 from gateway.platforms import _shared
 
-from hermes_qq_failover.plugin import register
+from hermes_onebot_fleet.plugin import register
 
 
 class Context:
@@ -30,7 +30,7 @@ async def probe():
     register(context)
     original_secret = _shared.get_scoped_secret
     original_home = hermes_constants.get_hermes_home
-    with tempfile.TemporaryDirectory(prefix="qq-native-probe-") as directory:
+    with tempfile.TemporaryDirectory(prefix="onebot-fleet-native-probe-") as directory:
         _shared.get_scoped_secret = lambda name: "FAKE_PROBE_TOKEN_NOT_A_REAL_SECRET"
         hermes_constants.get_hermes_home = lambda: Path(directory)
         try:
@@ -38,7 +38,7 @@ async def probe():
                 enabled=True,
                 extra={
                     "accounts": [
-                        {"id": "10001", "ws_url": "ws://127.0.0.1:1", "token_env": "QQ_PROBE_TOKEN"}
+                        {"id": "10001", "ws_url": "ws://127.0.0.1:1", "token_env": "ONEBOT_FLEET_PROBE_TOKEN"}
                     ],
                     "allowed_users": ["20001"],
                     "allowed_groups": ["30001"],
@@ -52,11 +52,11 @@ async def probe():
 
             assert isinstance(adapter, BasePlatformAdapter)
             source = adapter.build_source(
-                chat_id="qqf:qq-failover:group:30001",
+                chat_id="obf:onebot-fleet:group:30001",
                 chat_type="group",
                 user_id="20001",
                 message_id="probe",
-                scope_id="qq-failover",
+                scope_id="onebot-fleet",
             )
             event = MessageEvent(
                 text="probe", source=source, message_type=MessageType.TEXT, message_id="probe", metadata={}

@@ -9,7 +9,7 @@
 | Hermes Agent | Send | Canonical logical namespace and private/group destination allowlist | SendResult failure, not retried |
 | Local operator | Configure/read ledger | OS filesystem permissions; no remote admin endpoint | No application role system |
 
-Hermes' normal native gateway admission remains active via QQ_FAILOVER_ALLOWED_USERS.
+Hermes' normal native gateway admission remains active via ONEBOT_FLEET_ALLOWED_USERS.
 Pairing, allow-all, global grants do not bypass the plugin's earlier local owner/group check.
 No trusted_inbound, role_authorized, arbitrary tools, remote configuration, or MCP server.
 No row-level SQL security: SQLite is a local per-profile plugin file protected by OS permissions.

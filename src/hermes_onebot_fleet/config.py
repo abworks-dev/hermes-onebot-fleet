@@ -64,13 +64,13 @@ class Settings:
     accounts: tuple[Account, ...]
     allowed_users: frozenset[str] = frozenset()
     allowed_groups: frozenset[str] = frozenset()
-    logical_id: str = "qq-failover"
-    state_path: Path = Path("qq-failover.sqlite3")
+    logical_id: str = "onebot-fleet"
+    state_path: Path = Path("onebot-fleet.sqlite3")
     require_mention: bool = True
 
     def __post_init__(self) -> None:
         if self.require_mention is not True:
-            raise ValueError("require_mention must be true in v0.1")
+            raise ValueError("require_mention must be true in v0.2")
 
     @classmethod
     def from_mapping(cls, mapping: Mapping[str, object]) -> Settings:
@@ -109,15 +109,15 @@ class Settings:
                 raise ValueError(f"{key} must be a list")
             return frozenset(qq_id(x) for x in value)
 
-        logical_id = mapping.get("logical_id", "qq-failover")
+        logical_id = mapping.get("logical_id", "onebot-fleet")
         if not isinstance(logical_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", logical_id):
             raise ValueError("invalid logical_id")
-        path = mapping.get("state_path", "qq-failover.sqlite3")
+        path = mapping.get("state_path", "onebot-fleet.sqlite3")
         if not isinstance(path, (str, Path)) or not str(path).strip():
             raise ValueError("state_path must be a nonempty path")
         mention = mapping.get("require_mention", True)
         if mention is not True:
-            raise ValueError("require_mention must be true in v0.1")
+            raise ValueError("require_mention must be true in v0.2")
         return cls(
             tuple(accounts), ids("allowed_users"), ids("allowed_groups"), logical_id, Path(path), mention
         )

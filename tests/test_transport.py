@@ -6,8 +6,8 @@ import unittest
 
 from aiohttp import web
 
-from hermes_qq_failover.config import Account
-from hermes_qq_failover.transport import ActionError, ActionUncertain, OneBotConnection
+from hermes_onebot_fleet.config import Account
+from hermes_onebot_fleet.transport import ActionError, ActionUncertain, OneBotConnection
 
 TOKEN = "test-only-token-123456789"
 
@@ -30,7 +30,7 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.site = web.TCPSite(self.server, "127.0.0.1", 0)
         await self.site.start()
         port = self.site._server.sockets[0].getsockname()[1]
-        self.account = Account("1001", f"ws://127.0.0.1:{port}/", "QQ_TEST_TOKEN")
+        self.account = Account("1001", f"ws://127.0.0.1:{port}/", "ONEBOT_FLEET_TEST_TOKEN")
         self.connection = OneBotConnection(self.account, TOKEN, self.events.put)
         self.connection.BACKOFF_INITIAL = 0.01
         self.connection.BACKOFF_MAX = 0.03

@@ -18,7 +18,7 @@ One adapter instance owns all physical accounts for one profile/logical namespac
    either configured bot, allowing a standby observer to handle @primary after primary failure.
 4. Normalize text-only input and generate a cross-account semantic fingerprint. Reject rich attachments.
 5. Persist the fingerprint and payload in a plugin-owned SQLite WAL ledger before handing off.
-6. Canonical source chat_id is `qqf:<logical_id>:<group|private>:<id>`; source.user_id stays the human QQ.
+6. Canonical source chat_id is `obf:<logical_id>:<group|private>:<id>`; source.user_id stays the human QQ.
    Physical account identity is NOT in the session key. scope_id alone is not relied on for isolation.
 7. Native BasePlatformAdapter handles task lifecycle, conversation queueing, clarifications and commands.
    metadata stays empty to satisfy native ingress. No custom approval/execution state is implemented.
@@ -72,7 +72,7 @@ cannot be recovered by this in-process design. Initial pre-authentication events
 past the bounded 256-event transport queue can be dropped. Do not present this as a general
 message broker or total machine-failure failover. Running the same profile on two machines is unsupported.
 
-v0.1 is text-only; it does not translate quoted message IDs across accounts, fetch image URLs,
+v0.2.0 is text-only; it does not translate quoted message IDs across accounts, fetch image URLs,
 download files, expose arbitrary OneBot actions, or register agent tools. reply_to is not used to
 create native QQ quoted replies. Rich message/voice/file events are rejected, not summarized from metadata.
 No media, button, edit/streaming, reaction, account login automation, or standalone cron sender.
@@ -91,9 +91,9 @@ Hermes provides native sessions, model execution, approvals and profile-bound cr
 
 ## Known risks linked to implementation
 
-- [Adapter send correlation](../src/hermes_qq_failover/adapter.py) cannot identify host-ledger replays without stable host obligation IDs.
-- [Transport queue](../src/hermes_qq_failover/transport.py) is memory-only before ledger enqueue; overflow/pre-auth events can be lost.
-- [Normalizer](../src/hermes_qq_failover/protocol.py) intentionally collapses identical same-sender/same-chat/same-second text.
-- [Ledger](../src/hermes_qq_failover/store.py) is not atomic with native Hermes execution, retains private content and needs an operator retention policy.
+- [Adapter send correlation](../src/hermes_onebot_fleet/adapter.py) cannot identify host-ledger replays without stable host obligation IDs.
+- [Transport queue](../src/hermes_onebot_fleet/transport.py) is memory-only before ledger enqueue; overflow/pre-auth events can be lost.
+- [Normalizer](../src/hermes_onebot_fleet/protocol.py) intentionally collapses identical same-sender/same-chat/same-second text.
+- [Ledger](../src/hermes_onebot_fleet/store.py) is not atomic with native Hermes execution, retains private content and needs an operator retention policy.
 - Private messages addressed to an offline bot are not delivered to another QQ account: only group observations offer cross-account inbound redundancy.
-- Real two-account NapCat, approval, notification and Hermes crash-recovery behavior have not been tested live.
+- Pre-rename local two-account NapCat testing on 2026-10-18 covered primary reply, standby handling @primary while the primary OneBot service was disabled, and return to primary after restoration: three real messages, exactly 3 handed_off / 3 sent. The renamed version still needs connection/message-path retesting; approval, notification and Hermes crash-recovery behavior remain unverified live.

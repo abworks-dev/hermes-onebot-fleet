@@ -4,8 +4,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from hermes_qq_failover.lock import InstanceLock
-from hermes_qq_failover.store import Store
+from hermes_onebot_fleet.lock import InstanceLock
+from hermes_onebot_fleet.store import Store
 
 
 def test_duplicate_enqueue_and_atomic_claim(tmp_path):

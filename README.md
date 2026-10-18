@@ -1,12 +1,16 @@
-# Hermes QQ Failover
+# Hermes OneBot Fleet
 
-**实验性 v0.1 原生 Hermes 平台插件，不是已经验收的生产接入。**
+**实验性 v0.2.0 原生 Hermes 平台插件，不是已经验收的生产接入。**
 
-多个 NapCat / OneBot 11 账号作为同一 Hermes profile 的 QQ 入口。无需 NoneBot、HTTP API 代理或修改 Hermes 核心。目前只支持文本。
+多个 NapCat / OneBot v11 账号作为同一 Hermes profile 的 QQ 入口。无需 NoneBot、HTTP API 代理或修改 Hermes 核心。目前只支持文本；当前协议实现与验证范围仅限 OneBot v11 / NapCatQQ，不代表已兼容其他 OneBot 实现。更名前的同一实现已于 2026-10-18 完成本地真实双账号群聊主号回复、断开主号后由备号处理 @主号、恢复后回到主号的三条消息验收，账本为 3 条 `handed_off` / 3 条 `sent`。此历史结果不是生产验收；当前更名版本的连接与消息链路仍待复测。
+
+## v0.2.0 破坏性标识调整
+
+项目名称为 `hermes-onebot-fleet`，Python 包为 `hermes_onebot_fleet`，适配器为 `OneBotFleetAdapter`；插件 ID 为 `onebot-fleet`，平台为 `onebot_fleet`，原生环境变量前缀为 `ONEBOT_FLEET_`，规范会话前缀为 `obf:`。这些标识构成破坏性调整，不提供旧标识兼容保证。请按下方示例创建全新隔离部署，重新配置凭据、准入和通知目标；不要直接复用已有会话或账本作为迁移，也不要修改正在使用的接入。
 
 ```text
 NapCat 主号 ──认证 WebSocket──┐
-                            ├─ qq_failover 原生适配器 ─ Hermes Gateway / Agent
+                            ├─ onebot_fleet 原生适配器 ─ Hermes Gateway / Agent
 NapCat 备号 ──认证 WebSocket──┘
 ```
 
@@ -26,7 +30,7 @@ NapCat 备号 ──认证 WebSocket──┘
 2. 账号故障切换 ≠ Hermes 主机高可用。Gateway 停机、NapCat 不重放的消息、鉴权前事件和队列溢出可能丢失；没有跨机器选主。
 3. 私聊发送给离线主号的消息不会自动出现在备号。**跨账号入站冗余主要用于两个号都在的群。** 私聊要主动联系在线账号。
 4. OneBot message_id 可能各账号不同。去重采用逻辑空间/聊天/用户/秒级时间/文本，因此同人同群同秒相同文本可能被合并。
-5. 不支持图片、语音、文件、原生引用回复、流式编辑、按钮和独立进程 cron 发送。原生 clarify/审批的文本交互、通知、真实双账号切换尚未 QQ 实测。
+5. 不支持图片、语音、文件、原生引用回复、流式编辑、按钮和独立进程 cron 发送。原生 clarify/审批的文本交互与通知尚未 QQ 实测；历史双账号切换验收不覆盖这些功能，也不替代更名版本复测。
 6. QQ 自动化的登录与账号风控风险由用户自行评估。不要使用重要主号直接进行故障实验。
 
 详见[架构与可靠性边界](documentation/architecture.md)、[权限](documentation/permissions.md)和[测试地图](documentation/tests.md)。
@@ -50,19 +54,19 @@ $env:PYTHONPATH = 'src'
 
 ## 可选试装：先用全新隔离 profile
 
-本次开发没有切换现有 QQ 接入，也没有把此新插件启用到现有 profile。只有在接受以上实验边界后再试装。
+更名前曾进行上述本地真实双账号验收；该历史部署结果不代表当前更名版本已验证，也不是迁移现有 profile 的操作指南。新部署仍应使用全新隔离 profile，只有在接受以上实验边界后再试装。
 
 1. 使用原生 CLI 创建空 profile，不复制原有 QQ 适配器配置：
 
    ```powershell
-   hermes profile create qq-failover-test --no-alias
+   hermes profile create onebot-fleet-test --no-alias
    ```
 
 2. 从源码仓库暂存插件，参数必须是**新 profile 的实际目录**：
 
    ```powershell
    $env:PYTHONPATH = 'src'
-   .\.venv\Scripts\python.exe -m hermes_qq_failover.cli stage-plugin --hermes-home '<profile的绝对路径>'
+   .\.venv\Scripts\python.exe -m hermes_onebot_fleet.cli stage-plugin --hermes-home '<profile的绝对路径>'
    ```
 
    暂存仅创建该 profile 的插件目录；不覆盖已有插件、不写入凭据、不启用，也不修改模型设置。请勿把路径指向正在工作的旧 profile。
@@ -74,8 +78,8 @@ $env:PYTHONPATH = 'src'
 5. 通过 Hermes 原生插件/PM 管理启用和安装依赖：
 
    ```powershell
-   hermes -p qq-failover-test plugins enable qq-failover
-   hermes -p qq-failover-test plugins doctor qq-failover --ci
+   hermes -p onebot-fleet-test plugins enable onebot-fleet
+   hermes -p onebot-fleet-test plugins doctor onebot-fleet --ci
    ```
 
    同意依赖前检查来源。**不要对 Hermes 托管环境执行 pip/uv pip install**；暂存目录带本地依赖声明供 Hermes PM 使用。`plugins.isolation: in_process` 是原生平台适配器所需，不是 OS 沙箱。
@@ -94,7 +98,7 @@ $env:PYTHONPATH = 'src'
 
 ```powershell
 $env:PYTHONPATH = 'src'
-.\.venv\Scripts\python.exe -m hermes_qq_failover.cli status --state '<profile>/plugin-data/qq-failover/state.sqlite3'
+.\.venv\Scripts\python.exe -m hermes_onebot_fleet.cli status --state '<profile>/plugin-data/onebot-fleet/state.sqlite3'
 ```
 
 需要人工核对 uncertain 记录。账本保存消息与回复，按私密数据保护和备份；不要提交到 Git。参阅[配置/密钥与存储](documentation/variables.md)、[运行流程](documentation/flows.md)、[后台任务](documentation/cron.md)、[自动化边界](documentation/automation.md)。

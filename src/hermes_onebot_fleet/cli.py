@@ -39,7 +39,7 @@ def main():
     home = args.hermes_home.resolve()
     if not home.is_dir() or not (home / "config.yaml").is_file():
         parser.error("hermes-home must be an existing profile with config.yaml")
-    destination = home / "plugins" / "qq-failover"
+    destination = home / "plugins" / "onebot-fleet"
     if destination.exists():
         parser.error("destination exists; back up/review it manually before an upgrade")
     destination.mkdir(parents=True)
@@ -47,17 +47,17 @@ def main():
     shutil.copy2(shim / "__init__.py", destination / "__init__.py")
     shutil.copytree(
         Path(__file__).resolve().parent,
-        destination / "src" / "hermes_qq_failover",
+        destination / "src" / "hermes_onebot_fleet",
         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
     )
     # Hermes PM reads plugin-local project dependencies. Never pip into its environment.
     (destination / "pyproject.toml").write_text(
-        '[project]\nname="hermes-qq-failover-directory"\nversion="0.1.0"\n'
+        '[project]\nname="hermes-onebot-fleet-directory"\nversion="0.2.0"\n'
         'requires-python=">=3.12,<3.15"\ndependencies=["aiohttp>=3.12,<4"]\n',
         encoding="utf-8",
     )
     print("Plugin source staged. Existing adapters and credentials were not changed.")
-    print("Configure the profile, then enable qq-failover through Hermes plugin/PM commands.")
+    print("Configure the profile, then enable onebot-fleet through Hermes plugin/PM commands.")
 
 
 if __name__ == "__main__":

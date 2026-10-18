@@ -8,6 +8,6 @@ def register(ctx):
     source = str(Path(__file__).resolve().parent / "src")
     if source not in sys.path:
         sys.path.insert(0, source)
-    from hermes_qq_failover.plugin import register as register_native
+    from hermes_onebot_fleet.plugin import register as register_native
 
     register_native(ctx)

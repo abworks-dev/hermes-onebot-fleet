@@ -2,8 +2,8 @@ from dataclasses import replace
 
 import pytest
 
-from hermes_qq_failover.config import Settings
-from hermes_qq_failover.protocol import currently_admitted, normalize_event
+from hermes_onebot_fleet.config import Settings
+from hermes_onebot_fleet.protocol import currently_admitted, normalize_event
 
 
 def admitted():

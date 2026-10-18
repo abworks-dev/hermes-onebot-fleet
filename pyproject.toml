@@ -3,8 +3,8 @@ requires = ["hatchling>=1.27,<2"]
 build-backend = "hatchling.build"
 
 [project]
-name = "hermes-qq-failover"
-version = "0.1.0"
+name = "hermes-onebot-fleet"
+version = "0.2.0"
 description = "Native Hermes OneBot 11 adapter with multi-account QQ routing and conservative recovery"
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
@@ -16,10 +16,10 @@ dependencies = ["aiohttp>=3.12,<4"]
 dev = ["pytest>=8,<10", "pytest-asyncio>=0.24,<2", "ruff>=0.12,<1"]
 
 [project.scripts]
-hermes-qq-failover = "hermes_qq_failover.cli:main"
+hermes-onebot-fleet = "hermes_onebot_fleet.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/hermes_qq_failover"]
+packages = ["src/hermes_onebot_fleet"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

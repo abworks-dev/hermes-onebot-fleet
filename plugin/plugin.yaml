@@ -1,0 +1,17 @@
+name: qq-failover
+label: QQ / NapCat Failover
+kind: platform
+version: 0.1.0
+author: abworks-dev
+description: Native multi-account OneBot 11 transport with strict permissions and conservative recovery
+provides_tools: []
+provides_hooks: []
+optional_env:
+  - name: QQ_FAILOVER_ALLOWED_USERS
+    description: Hermes gateway admission whitelist; must match the local allowed_users list
+    password: false
+  - name: QQ_FAILOVER_HOME_CHANNEL
+    description: Optional canonical proactive delivery target
+    password: false
+python_dependencies:
+  - 'aiohttp>=3.12,<4'

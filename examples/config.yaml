@@ -1,0 +1,30 @@
+# Merge only these sections into an independent Hermes profile; do not replace its model settings.
+plugins:
+  enabled:
+    - qq-failover
+  isolation: in_process
+
+gateway:
+  platforms:
+    qq_failover:
+      enabled: true
+      extra:
+        logical_id: qq-main
+        state_path: state.sqlite3
+        require_mention: true
+        accounts:
+          - id: '10001'       # Example ONLY: primary bot QQ
+            ws_url: ws://127.0.0.1:3001
+            token_env: QQ_PRIMARY_TOKEN
+            priority: 0
+          - id: '10002'       # Example ONLY: standby bot QQ
+            ws_url: ws://127.0.0.1:3002
+            token_env: QQ_STANDBY_TOKEN
+            priority: 10
+        allowed_users: ['20001']   # Example ONLY: owner
+        allowed_groups: ['30001']  # Example ONLY: permitted group
+
+# Transport validation is not an OS sandbox. Start with no agent tools.
+platform_toolsets:
+  qq_failover: []
+group_sessions_per_user: true

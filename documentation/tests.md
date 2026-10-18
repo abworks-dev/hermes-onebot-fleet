@@ -9,14 +9,20 @@ Historical local live acceptance on 2026-10-18 used the same implementation befo
 three real user group messages exercised primary reply, standby handling @primary after disabling the
 primary OneBot service, and return to primary after restoration. The ledger recorded exactly
 **3 handed_off / 3 sent**. Account IDs and private deployment details are not published. This is narrow
-local evidence, not a production verdict or proof of other features; the renamed version's
-model-generated messages and failover path still require retesting.
+local evidence, not a production verdict or proof of other features.
 
 Post-rename local check on 2026-10-18: both authenticated OneBot connections reported the
 expected account identity, online/good status and membership in the allowed test group.
 The renamed plugin passed the real-host contract probe and profile doctor; current owner/group
-allowlists and disabled tool access were rechecked. This is connection/policy evidence only;
-no post-rename model-generated message or three-step failover acceptance is claimed.
+allowlists and disabled tool access were rechecked.
+
+Post-rename v0.2.0 live acceptance repeated all three message steps on the same date:
+primary sent FLEET-1; after disabling only its OneBot listener, standby answered a structured
+@primary with FLEET-2; after restoring the listener, primary sent FLEET-3. The owner confirmed
+exactly one visible reply at each step. Starting from an empty renamed ledger, the final counts
+were **3 handed_off / 3 sent** (primary 2, standby 1), with no uncertain/failed/pending rows.
+Both authenticated services were online again at the end. This is narrow local text/group evidence,
+not a QQ-process/host outage test, global exactly-once guarantee or general production verdict.
 
 | Use case / rule | Expected deny or success | Evidence | Status |
 |---|---|---|---|
@@ -31,17 +37,18 @@ no post-rename model-generated message or three-step failover acceptance is clai
 | Source staging | Existing profile config and credentials unchanged; invalid profile/missing status DB denied; existing plugin refuses overwrite | [CLI tests](../tests/test_cli.py), [CLI](../src/hermes_onebot_fleet/cli.py) | Existing temporary-profile integration |
 | One process owner | Second OS file lock fails; release permits takeover | [Store tests](../tests/test_store.py), [lock](../src/hermes_onebot_fleet/lock.py) | Existing Windows unit |
 | Native registration | Real adapter ABC, platform registration/config, canonical source and empty metadata | [Host probe](../tools/probe_hermes.py), [plugin](../src/hermes_onebot_fleet/plugin.py) | Existing local real-host probe, not full gateway E2E |
-| Two real QQ accounts, pre-rename | Primary reply; disable primary OneBot service and @primary reaches standby; restore primary and replies return; exactly 3 handed_off / 3 sent | Historical local acceptance, 2026-10-18; [architecture](architecture.md) | Narrow guarded live pass before rename; renamed-version retest pending |
+| Two real QQ accounts, pre/post rename | Primary reply; disable primary OneBot service and @primary reaches standby; restore primary and replies return; each run exactly 3 handed_off / 3 sent | Local acceptance repeated on v0.2.0, 2026-10-18; [architecture](architecture.md) | Narrow guarded live pass; three single replies confirmed, both services restored |
 
-[CI](../.github/workflows/tests.yml) runs offline tests and lint on Windows/Linux. This workflow is
-included, but its remote result and branch protection have not been verified; it is not yet an
-enforced merge gate. Real-Hermes probe is local-only because CI does not vendor a host installation.
+[CI](../.github/workflows/tests.yml) runs offline tests and lint on Windows/Linux.
+The four Windows/Linux × Python 3.12/3.14 jobs passed for renamed commit `b487b32`.
+Branch protection has not been verified; this is not yet an enforced merge gate.
+Real-Hermes probe is local-only because CI does not vendor a host installation.
 
 ## Proposed tests (not completed)
 
 | Use case | Rule / expected negative | Evidence | Type / status |
 |---|---|---|---|
-| Renamed-version two-account regression | Recheck connection, primary/standby/return path and no double ingress; additionally verify both-offline failure | [Architecture](architecture.md), [adapter](../src/hermes_onebot_fleet/adapter.py) | Guarded live / pending; historical three-message pass does not cover both-offline failure |
+| Both accounts offline | Verify explicit failure without misleading success or ambiguous alternate replay | [Architecture](architecture.md), [adapter](../src/hermes_onebot_fleet/adapter.py) | Guarded live / pending; completed three-message failover tests do not cover this |
 | Native owner controls | Unauthorized approvals denied; owner @ text clarification, commands and interrupt reach native flow | [Permissions](permissions.md), [flows](flows.md) | Guarded live / proposed |
 | Profile isolation | Distinct secret scope, ledger, namespace and user session prevent cross-profile access | [Variables](variables.md), [adapter](../src/hermes_onebot_fleet/adapter.py) | Real-host integration / proposed |
 | Managed PM enablement | PM resolves staged dependency without core mutation | [CLI](../src/hermes_onebot_fleet/cli.py) | Real-host integration / proposed |

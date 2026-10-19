@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_release_metadata_and_entrypoint_agree():
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
     assert project["name"] == "hermes-onebot-fleet"
-    assert project["version"] == __version__ == "0.2.0"
+    assert project["version"] == __version__ == "0.3.0"
     assert project["scripts"] == {"hermes-onebot-fleet": "hermes_onebot_fleet.cli:main"}
     manifest = (ROOT / "plugin" / "plugin.yaml").read_text(encoding="utf-8")
     assert "name: onebot-fleet\n" in manifest

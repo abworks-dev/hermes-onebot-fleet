@@ -4,6 +4,10 @@
 NapCat A -- authenticated OneBot11 WS --\
                                        native adapter -> Hermes gateway -> Agent
 NapCat B -- authenticated OneBot11 WS --/
+
+Worker (no QQ tokens) -- Bearer + target alias --> adapter-owned loopback publisher
+                                                  -> publications.sqlite3
+                                                  -> owned adapter/OneBot sockets
 ```
 
 No NoneBot, API proxy, synthetic QQ identity, or Hermes core patch is used.
@@ -50,20 +54,56 @@ cancellation or crash to `uncertain`. Unknown outcomes require human verificatio
 The record preserves the reply so operators do not need to re-run the model to inspect it.
 It is not an autonomous retry outbox. The adapter marks its failures final to native
 _send_with_retry, preventing the immediate plain-text fallback from changing/re-sending text.
-However Hermes' separate delivery ledger and interrupted-turn recovery CAN reissue sends,
-possibly with changed content and without the original reply anchor/context. Those host-owned
-attempts are not reliably correlated by this plugin. There is no remote QQ idempotency/fencing
-key. Strict no-duplicate behavior across host restart/redelivery is NOT implemented: this is
-an experimental transport failover prototype, not a production exactly-once system. Do not
-remove host recovery or fabricate successful acknowledgments to conceal this gap.
+v0.3 denies unkeyed contextless proactive sends, including the old native cron path; normal
+native chat reply anchors remain supported. This closes that unkeyed background route, not all
+Hermes execution/recovery semantics. Hermes' separate delivery ledger/interrupted-turn recovery
+is still host-owned; the plugin does not provide a stable global host obligation identity or
+remote QQ idempotency/fencing key. Strict no-duplicate behavior across all host restart/redelivery
+is NOT promised. Do not remove host recovery or fabricate acknowledgments to conceal uncertainty.
 
 An OS-held exclusive lock protects each ledger from multiple plugin processes. There is no
 cross-machine leader election. One profile process owns coordination, all transports stay connected;
-only one logical ingress fingerprint reaches Hermes. Final native replies preferentially use
-reply_to (the canonical event ID) for correlation. Task-context correlation is only a fallback:
-native FIFO drains may inherit an earlier task context. Proactive/recovery sends without anchors
-can have unique IDs and are not globally deduped. Recovered queued inputs recheck the current
-logical namespace, users, groups, accounts and mention target; revoked work becomes denied.
+only one logical ingress fingerprint reaches Hermes. Final native replies use reply_to (the
+canonical event ID) for correlation; task-context inheritance is not a durable publication identity.
+Background publishers require an authenticated durable publication identity; arbitrary unkeyed
+contextless sends fail closed.
+Recovered queued inputs recheck the current logical namespace, users, groups, accounts and
+mention target; revoked work becomes denied.
+
+## v0.3 adapter-owned loopback publisher
+
+Opt-in [publisher](<../src/hermes_onebot_fleet/publisher.py>) starts/stops with the adapter, binds 127.0.0.1 on an explicitly configured
+port (example 18791), and injects a callback into the existing adapter transport owner. It never
+opens independent OneBot connections and never falls back to native cron delivery. The adapter
+keeps using verified healthy accounts and the current destination policy. Pre-send read-only
+selection may choose standby; failure after mutating dispatch never reroutes to standby.
+
+All HTTP paths require a strict Bearer publish token. Token identity selects a client whose configured
+target aliases are a subset of Fleet's canonical destination allowlist. POST /v1/publications accepts
+only publication_id, target alias and text (1–1800 characters); GET /v1/publications/{id} and
+GET /v1/status expose only that client's state without text/secrets. Unknown routes are authenticated
+too; Host is loopback-checked, Origin/query strings are rejected, and there is no CORS integration.
+
+The independent publications.sqlite3 is a plugin outbox, not Hermes DB. Identity is (client, durable
+immutable publication_id); duplicates with the same canonical target/text return state without
+resending, while changed target/text returns 409. Pending work is bounded, rate-capped and expires
+after 24h. State is pending/sending/sent/unknown/rejected/expired. Startup changes sending to unknown
+without automatic replay. Only explicit NoRoute proving **no mutating RPC** permits sending -> pending.
+Timeout/disconnect/cancellation/ambiguous callback results are unknown and require manual reconciliation.
+Only sent **with message_id** means confirmed OneBot ACK, never human receipt/read confirmation.
+
+OneBot sends cannot commit atomically with SQLite. Conservatively refusing unknown retries may leave
+an unsent publication unsent, or lose local confirmation of a delivered one; this is not exactly-once.
+24h payload removal preserves ID/hash tombstones and does not permit ID reuse or unknown replay.
+
+Optional per-client `quiet_hours` gates server dispatch of both old pending and newly accepted work. Intake/query/expiry still run; absent policy keeps the old behavior. Only modern Asia/Shanghai UTC+08 is supported. A callback begun just before quiet is cooperatively bounded to the boundary; a mutating RPC already dispatched cannot be recalled. Local worker quiet must match server policy; no per-item TTL/cancel API exists. Quiet-hours tests are offline-only and not part of the live evidence below.
+
+Workers run in independent projects/venvs and token-free-QQ profiles with only narrow publish
+capabilities and explicit environment allowlists. Their cron MUST use deliver=local and
+failure-deliver=local so publisher is the sole outward delivery. Same-Windows-user isolation is not
+an OS sandbox and does not defend against a malicious same-user process reading files/credentials.
+See [background operations](cron.md), [permissions](permissions.md) and [variables](variables.md).
+**Narrow local v0.3 acceptance (2026-10-18/19):** an independent worker profile with no QQ/OneBot credentials submitted one cross-profile publication; its native one-shot cron (`deliver=local`, `failure-deliver=local`) submitted a second. Both returned distinct `sent` receipts with message IDs. Repeating the original POST and hot-reloading the owning profile preserved those receipts without another send. The operator confirmed each test message appeared once and ordinary owner-mention group chat still replied normally. Missing/wrong capabilities, forbidden targets, browser Origin and changed immutable payload were rejected. Both-entry offline recovery was **not completed**: the standby had logged out, cached login failed, and extra live fault tests were paused. Live ACK-loss/crash uncertainty remains untested. No QQ guild/channel or group-management features were exercised.
 
 ## Lifecycle and unavailable features
 
@@ -72,11 +112,12 @@ cannot be recovered by this in-process design. Initial pre-authentication events
 past the bounded 256-event transport queue can be dropped. Do not present this as a general
 message broker or total machine-failure failover. Running the same profile on two machines is unsupported.
 
-v0.2.0 is text-only; it does not translate quoted message IDs across accounts, fetch image URLs,
+v0.3.0 remains text-only; it does not translate quoted message IDs across accounts, fetch image URLs,
 download files, expose arbitrary OneBot actions, or register agent tools. reply_to is not used to
 create native QQ quoted replies. Rich message/voice/file events are rejected, not summarized from metadata.
 No media, button, edit/streaming, reaction, account login automation, or standalone cron sender.
-Live native send/cron routes are available while gateway is running; out-of-process delivery is not.
+Native anchored chat replies remain available while gateway is running. Background delivery requires
+the opt-in live adapter publisher; old unkeyed native cron sending and standalone QQ delivery are denied.
 Clarify and approval rely on Hermes text fallbacks; real QQ interaction must be tested before reliance.
 
 No email or public/indexable HTTP routes: no emails.md or seo.md. Periodic transport tasks and
@@ -91,9 +132,10 @@ Hermes provides native sessions, model execution, approvals and profile-bound cr
 
 ## Known risks linked to implementation
 
-- [Adapter send correlation](../src/hermes_onebot_fleet/adapter.py) cannot identify host-ledger replays without stable host obligation IDs.
+- [Adapter send correlation](../src/hermes_onebot_fleet/adapter.py) blocks unkeyed contextless sends but does not promise host-global recovery dedup without stable host obligation IDs.
+- [Publisher](../src/hermes_onebot_fleet/publisher.py) cannot atomically commit OneBot send with SQLite; unknown is conservative and requires reconciliation. Independent worker profiles/venvs under the same Windows user are not a hostile-code sandbox.
 - [Transport queue](../src/hermes_onebot_fleet/transport.py) is memory-only before ledger enqueue; overflow/pre-auth events can be lost.
 - [Normalizer](../src/hermes_onebot_fleet/protocol.py) intentionally collapses identical same-sender/same-chat/same-second text.
 - [Ledger](../src/hermes_onebot_fleet/store.py) is not atomic with native Hermes execution, retains private content and needs an operator retention policy.
 - Private messages addressed to an offline bot are not delivered to another QQ account: only group observations offer cross-account inbound redundancy.
-- Pre-rename local two-account NapCat testing on 2026-10-18 covered primary reply, standby handling @primary while the primary OneBot service was disabled, and return to primary after restoration: three real messages, exactly 3 handed_off / 3 sent. The renamed v0.2.0 repeated this three-message live test on the same date: primary/standby/primary each sent one reply, exactly 3 handed_off / 3 sent with no uncertain rows; both services were restored. The owner confirmed a single visible reply at each step. This tests a disabled primary OneBot listener, not a killed QQ process or host failure; approval, notification and Hermes crash-recovery behavior remain unverified live.
+- Historical v0.2-series evidence only (not v0.3 publisher acceptance): pre-rename local two-account NapCat testing on 2026-10-18 covered primary reply, standby handling @primary while the primary OneBot service was disabled, and return to primary after restoration: three real messages, exactly 3 handed_off / 3 sent. The renamed v0.2.0 repeated this three-message live test on the same date: primary/standby/primary each sent one reply, exactly 3 handed_off / 3 sent with no uncertain rows; both services were restored. The owner confirmed a single visible reply at each step. This tests a disabled primary OneBot listener, not a killed QQ process or host failure; approval, notification and Hermes crash-recovery behavior remain unverified live.

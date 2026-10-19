@@ -1,13 +1,11 @@
-"""Hermes directory-plugin loader for the staged self-contained source package."""
+"""Hermes directory plugin with profile-scoped relative module imports.
 
-import sys
-from pathlib import Path
+Keep implementation modules under the host-owned directory-plugin namespace so
+native reload evicts the entire package rather than reusing global sys.modules.
+"""
 
 
 def register(ctx):
-    source = str(Path(__file__).resolve().parent / "src")
-    if source not in sys.path:
-        sys.path.insert(0, source)
-    from hermes_onebot_fleet.plugin import register as register_native
+    from .src.hermes_onebot_fleet.plugin import register as register_native
 
     register_native(ctx)

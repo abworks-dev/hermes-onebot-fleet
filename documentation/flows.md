@@ -13,14 +13,27 @@ require the admitted owner to @ a configured bot in the group.
 
 ## Agent reply -> QQ
 
-Actor: native Hermes runtime, including live notifications. Preconditions: allowed canonical target.
+Actor: native Hermes runtime replying to a correlated inbound message. Preconditions: allowed canonical target
+and reply_to identity. Contextless cron/notification sends are rejected; inherited INGRESS is not authorization.
 The adapter rechecks namespace and target policy, chooses a verified account, and checks group
 membership if applicable. It records sending BEFORE crossing plugin -> OneBot side-effect boundary.
 Text is serialized as a structured text segment; CQ strings are not interpreted. Confirmed remote
 message ID marks sent. Unknown delivery is recorded uncertain and is not retried by this transport.
-The immediate native plain-text fallback is suppressed. Independent native delivery-ledger and
-crash-recovery attempts may still resend; strict host-recovery no-duplicates is an open gap.
+Background jobs must use the optional restricted publisher, not the native proactive-send fallback.
+Native conversation recovery itself is not an exactly-once transaction; changing reply text or reply IDs is not a
+business publication identity. The publisher freezes both content and target before dispatch and never permits
+host-native fallback to mint a new publication.
 Explicitly rejected sends mark failed. No arbitrary API calls are exposed to the model.
+
+## Background publication -> QQ
+
+Actor: explicitly allowlisted publisher client, with a separate bearer token and fixed target aliases. The
+loopback publisher authenticates every request and stores (client, publication_id, alias, text) before admission
+returns 202. Identical duplicates query the same row; differing content or targets conflict. A single worker
+uses the running Fleet connection, never a second QQ client. Only a pre-dispatch NoRoute can return pending;
+any ambiguous send/restart becomes unknown and requires manual reconciliation. Client scope, rate and expiry
+are enforced independently of source content and agent prompts. Status sent requires a validated numeric
+remote message ID, not merely a callback or HTTP success.
 
 ## Restart/fault
 

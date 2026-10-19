@@ -52,7 +52,7 @@ def main():
     )
     # Hermes PM reads plugin-local project dependencies. Never pip into its environment.
     (destination / "pyproject.toml").write_text(
-        '[project]\nname="hermes-onebot-fleet-directory"\nversion="0.2.0"\n'
+        '[project]\nname="hermes-onebot-fleet-directory"\nversion="0.3.0"\n'
         'requires-python=">=3.12,<3.15"\ndependencies=["aiohttp>=3.12,<4"]\n',
         encoding="utf-8",
     )

@@ -17,6 +17,8 @@ The output contract is native SendResult, with retryable=false for failure/uncer
 require a remote message_id. Text is escaped by structured segments, not interpreted as CQ commands.
 
 Kill switch: disable this plugin/platform in the owning profile using native Hermes administration.
+The opt-in loopback publication endpoint is authenticated and cannot change the whitelist or select accounts.
+It accepts only preconfigured target aliases and immutable publication IDs. Native contextless sends are denied.
 No remote admin endpoint or model tool can change the whitelist or select accounts. Tokens and raw
 message bodies are not logged by this code; the ledger intentionally retains body/reply content locally.
 There is no new per-user rate limiter: owner-only first, then host runtime/conversation queue limits.

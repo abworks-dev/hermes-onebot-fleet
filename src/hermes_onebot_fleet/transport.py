@@ -113,13 +113,17 @@ class OneBotConnection:
         self._pending[echo] = (future, action)
         try:
             try:
-                await ws.send_str(payload)
-            except (aiohttp.ClientError, OSError, RuntimeError):
-                raise ActionUncertain("connection failed during request dispatch") from None
-            try:
-                return await asyncio.wait_for(future, timeout)
+                # Bound BOTH socket write and response wait. A timeout after
+                # beginning dispatch is ambiguous, never permission to replay.
+                async with asyncio.timeout(timeout):
+                    await ws.send_str(payload)
+                    return await future
+            except (ActionError, ActionUncertain):
+                raise
             except TimeoutError:
                 raise ActionUncertain("action response timed out after dispatch") from None
+            except (aiohttp.ClientError, OSError, RuntimeError):
+                raise ActionUncertain("connection failed during request dispatch") from None
         finally:
             self._pending.pop(echo, None)
             if not future.done():
@@ -173,6 +177,7 @@ class OneBotConnection:
                         headers={"Authorization": "Bearer " + token},
                         max_msg_size=self.MAX_MESSAGE_BYTES,
                         heartbeat=20,
+                        timeout=aiohttp.ClientWSTimeout(ws_close=0.5),
                     ) as ws:
                         self._ws = ws
                         reader = asyncio.create_task(self._read(ws))

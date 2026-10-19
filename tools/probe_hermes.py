@@ -63,6 +63,12 @@ async def probe():
             )
             assert source.user_id == "20001"
             assert (await adapter.get_chat_info(source.chat_id))["type"] == "group"
+            # The actual native wrapper cannot authorize unkeyed cron sends.
+            # No transport is started and denied calls never touch a ledger.
+            for text in ("native proactive attempt", "outer plain-text fallback"):
+                denied = await adapter._send_with_retry(source.chat_id, text, base_delay=0)
+                assert not denied.success and not denied.retryable
+                assert "durable publisher ID" in denied.error
             # Exercise the REAL host retry/fallback wrapper, not just send() in a mock.
             from gateway.platforms.base import SendResult
 
@@ -88,6 +94,7 @@ async def probe():
                         "network_started": False,
                         "profile_modified": False,
                         "uncertain_send_attempts": len(calls),
+                        "native_unkeyed_attempts_denied": 2,
                     }
                 )
             )

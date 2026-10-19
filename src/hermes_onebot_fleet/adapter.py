@@ -6,7 +6,7 @@ import asyncio
 import hashlib
 import json
 import logging
-import uuid
+import re
 from contextvars import ContextVar
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -18,11 +18,14 @@ from gateway.platforms.base import BasePlatformAdapter, MessageEvent, MessageTyp
 from .config import Settings, qq_id
 from .lock import InstanceLock
 from .protocol import Incoming, currently_admitted, normalize_event
+from .publisher import NoRoute, Publisher
 from .store import Store
 from .transport import ActionError, ActionUncertain, OneBotConnection
 
 log = logging.getLogger(__name__)
 INGRESS = ContextVar("onebot_fleet_ingress", default=None)
+# Only the authenticated, durable publication service sets this context.
+PUBLICATION = ContextVar("onebot_fleet_publication", default=None)
 
 
 def target(logical_id: str, kind: str, identifier: str) -> str:
@@ -67,6 +70,16 @@ class OneBotFleetAdapter(BasePlatformAdapter):
         self._send_lock = asyncio.Lock()
         self._lifecycle_lock = asyncio.Lock()
         self._running = False
+        self._publisher = None
+        self._publish_secrets = {}
+        for client in self.settings.publisher.clients:
+            self._publish_secrets[client.token_env] = get_scoped_secret(client.token_env)
+            client.resolve_token(self._publish_secrets)
+            for address in client.targets.values():
+                _, kind, identifier = parse_target(address, self.settings.logical_id)
+                allowed = self.settings.allowed_groups if kind == "group" else self.settings.allowed_users
+                if identifier not in allowed:
+                    raise ValueError("publisher target exceeds Fleet destination policy")
         for account in self.settings.accounts:
 
             async def callback(raw, current=account):
@@ -89,6 +102,14 @@ class OneBotFleetAdapter(BasePlatformAdapter):
                 self._tasks.append(asyncio.create_task(self._health_loop()))
                 if self._receive_events:
                     self._tasks.append(asyncio.create_task(self._drain()))
+                if self.settings.publisher.enabled:
+                    self._publisher = Publisher(
+                        self.settings.publisher,
+                        self._path.with_name(self._path.name + ".publications.sqlite3"),
+                        self._publish_secrets,
+                        self._publish_once,
+                    )
+                    await self._publisher.start()
                 self._running = True
                 # All accounts may initially be offline; reconnect loops remain live.
                 return True
@@ -102,12 +123,20 @@ class OneBotFleetAdapter(BasePlatformAdapter):
 
     async def _stop(self):
         self._running = False
-        for task in self._tasks:
-            task.cancel()
-        await asyncio.gather(*self._tasks, return_exceptions=True)
-        self._tasks.clear()
-        await asyncio.gather(*(c.stop() for c in self._connections.values()), return_exceptions=True)
-        self._lock.release()
+        publisher = getattr(self, "_publisher", None)
+        try:
+            if publisher is not None:
+                await publisher.stop()
+        finally:
+            self._publisher = None
+            try:
+                for task in self._tasks:
+                    task.cancel()
+                await asyncio.gather(*self._tasks, return_exceptions=True)
+                self._tasks.clear()
+                await asyncio.gather(*(c.stop() for c in self._connections.values()), return_exceptions=True)
+            finally:
+                self._lock.release()
 
     async def _on_event(self, account, raw):
         if not self._receive_events or self._store is None:
@@ -174,13 +203,14 @@ class OneBotFleetAdapter(BasePlatformAdapter):
                 continue
             if kind == "group":
                 try:
-                    member = await connection.rpc(
-                        "get_group_member_info",
-                        {"group_id": int(identifier), "user_id": int(account.id), "no_cache": True},
-                    )
+                    async with asyncio.timeout(2.0):
+                        member = await connection.rpc(
+                            "get_group_member_info",
+                            {"group_id": int(identifier), "user_id": int(account.id), "no_cache": True},
+                        )
                     if str(member.get("user_id")) != account.id:
                         continue
-                except (ActionError, ActionUncertain, ConnectionError, AttributeError):
+                except (ActionError, ActionUncertain, ConnectionError, AttributeError, TimeoutError):
                     continue  # Read-only preflight; safe to examine a standby.
             return account, connection
         return None
@@ -195,6 +225,16 @@ class OneBotFleetAdapter(BasePlatformAdapter):
                 return SendResult(
                     success=False, error="text must contain 1..4000 characters", retryable=False
                 )
+            origin = PUBLICATION.get() or reply_to
+            if not origin:
+                # Native cron has a second, outer fallback not governed by
+                # _send_retry_is_final. Unkeyed proactive sends must fail closed;
+                # background callers use the durable publisher, deliver=local.
+                return SendResult(
+                    success=False,
+                    error="background publication requires durable publisher ID",
+                    retryable=False,
+                )
             async with self._send_lock:
                 chosen = await self._choose(kind, identifier)
                 if chosen is None:
@@ -202,11 +242,9 @@ class OneBotFleetAdapter(BasePlatformAdapter):
                         success=False, error="no verified account available for target", retryable=False
                     )
                 account, connection = chosen
-                # Native final replies carry the canonical event ID in reply_to.
-                # Prefer it over inherited task context (native FIFO drains can retain
-                # an earlier task context). Contextless proactive/recovery sends get
-                # unique IDs; host redelivery is explicitly NOT exactly-once here.
-                origin = reply_to or INGRESS.get() or uuid.uuid4().hex
+                # Native final replies carry canonical event IDs in reply_to;
+                # publisher IDs come from the authenticated immutable publication
+                # record, NOT caller-provided metadata or a per-attempt UUID.
                 key = hashlib.sha256(
                     json.dumps([origin, chat_id, content, reply_to], ensure_ascii=False).encode()
                 ).hexdigest()
@@ -229,8 +267,12 @@ class OneBotFleetAdapter(BasePlatformAdapter):
                         "send_group_msg" if kind == "group" else "send_private_msg", params
                     )
                     message_id = result.get("message_id") if isinstance(result, dict) else None
-                    if message_id is None:
-                        raise ActionUncertain("send acknowledged without message id")
+                    if (
+                        isinstance(message_id, bool)
+                        or not isinstance(message_id, (int, str))
+                        or not re.fullmatch(r"-?[0-9]{1,64}", str(message_id))
+                    ):
+                        raise ActionUncertain("send acknowledged without valid message id")
                     self._store.send_result(key, "sent", message_id=message_id)
                     return SendResult(success=True, message_id=str(message_id))
                 except ActionError:
@@ -248,6 +290,31 @@ class OneBotFleetAdapter(BasePlatformAdapter):
                     )
         except (ValueError, TypeError):
             return SendResult(success=False, error="invalid or unauthorized QQ target", retryable=False)
+
+    async def _publish_once(self, publication_key, chat_id, content):
+        """Sole publication side effect; uses existing owned connections only."""
+        token = PUBLICATION.set("publication:" + publication_key)
+        try:
+            result = await self.send(chat_id, content)
+        finally:
+            PUBLICATION.reset(token)
+        if result.error == "no verified account available for target":
+            # Read-only account/group preflight only; no send RPC was attempted.
+            raise NoRoute()
+        origin = "publication:" + publication_key
+        key = hashlib.sha256(
+            json.dumps([origin, chat_id, content, None], ensure_ascii=False).encode()
+        ).hexdigest()
+        row = self._store.outbound(key)
+        if result.success:
+            return {
+                "state": "sent",
+                "message_id": result.message_id,
+                "account": row["account"] if row else None,
+            }
+        if row and row["state"] in {"sending", "uncertain"}:
+            return {"state": "unknown"}
+        return {"state": "rejected"}
 
     def _send_retry_is_final(self, result):
         # retryable=False alone does NOT stop Hermes' plain-text fallback.

@@ -6,9 +6,11 @@ import ipaddress
 import os
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
+
+from .publisher import PublisherSettings
 
 
 def qq_id(value: object) -> str:
@@ -67,6 +69,7 @@ class Settings:
     logical_id: str = "onebot-fleet"
     state_path: Path = Path("onebot-fleet.sqlite3")
     require_mention: bool = True
+    publisher: PublisherSettings = field(default_factory=PublisherSettings)
 
     def __post_init__(self) -> None:
         if self.require_mention is not True:
@@ -83,6 +86,7 @@ class Settings:
             "logical_id",
             "state_path",
             "require_mention",
+            "publisher",
             "group_sessions_per_user",
             "thread_sessions_per_user",
         }
@@ -119,5 +123,11 @@ class Settings:
         if mention is not True:
             raise ValueError("require_mention must be true in v0.2")
         return cls(
-            tuple(accounts), ids("allowed_users"), ids("allowed_groups"), logical_id, Path(path), mention
+            tuple(accounts),
+            ids("allowed_users"),
+            ids("allowed_groups"),
+            logical_id,
+            Path(path),
+            mention,
+            PublisherSettings.from_mapping(mapping.get("publisher", {})),
         )

@@ -1,8 +1,8 @@
 # Hermes OneBot Fleet
 
-**实验性 v0.2.0 原生 Hermes 平台插件，不是已经验收的生产接入。**
+**实验性 v0.3.0 原生 Hermes 平台插件。loopback publisher 已完成本地跨 profile、定时发布、稳定 ID 重复提交及热重载验收；断网恢复与真实 ACK 丢失尚未完成，不是生产就绪声明。**
 
-多个 NapCat / OneBot v11 账号作为同一 Hermes profile 的 QQ 入口。无需 NoneBot、HTTP API 代理或修改 Hermes 核心。目前只支持文本；当前协议实现与验证范围仅限 OneBot v11 / NapCatQQ，不代表已兼容其他 OneBot 实现。更名前的同一实现已于 2026-10-18 完成本地真实双账号群聊主号回复、断开主号后由备号处理 @主号、恢复后回到主号的三条消息验收，账本为 3 条 `handed_off` / 3 条 `sent`。更名后的 v0.2.0 也已于同日完成相同三步实测：主号、备号、主号依次各回复一条，新增账本为 3 条 `handed_off` / 3 条 `sent`，无 `uncertain`，结束后双账号服务恢复。这些窄范围本地结果均不是生产验收。
+多个 NapCat / OneBot v11 账号作为同一 Hermes profile 的 QQ 入口。无需 NoneBot、外部 HTTP API 代理或修改 Hermes 核心。目前只支持文本；当前协议实现与验证范围仅限 OneBot v11 / NapCatQQ，不代表已兼容其他 OneBot 实现。**以下为历史 v0.2 系列验收记录，不覆盖 v0.3 publisher：** 更名前的同一实现已于 2026-10-18 完成本地真实双账号群聊主号回复、断开主号后由备号处理 @主号、恢复后回到主号的三条消息验收，账本为 3 条 `handed_off` / 3 条 `sent`。更名后的 v0.2.0 也已于同日完成相同三步实测：主号、备号、主号依次各回复一条，新增账本为 3 条 `handed_off` / 3 条 `sent`，无 `uncertain`，结束后双账号服务恢复。这些窄范围本地结果均不是生产验收。
 
 ## v0.2.0 破坏性标识调整
 
@@ -23,10 +23,12 @@ NapCat 备号 ──认证 WebSocket──┘
 - 入站排队任务在交给 Hermes 前重新校验当前权限，撤销授权会拒绝旧任务。
 - 接入 Hermes 原生会话、任务、命令和审批体系；不另写一套 Agent 执行器。
 - 配置与令牌按 profile 隔离；仅允许 loopback WebSocket；模型无任意 OneBot 动作工具。
+- v0.3 可显式启用适配器拥有的 loopback publisher：按 client/目标别名授权，独立 SQLite 持久去重，复用已有 OneBot 连接；不启用则不监听。
+- v0.3 拒绝无稳定发布键、无原生回复上下文的主动发送（包括旧原生 cron 投递路径）；正常聊天回复锚点保留。后台 worker 必须只经 publisher 交付，不能回退原生 cron 或另开 OneBot sender。
 
 ## 必须知道的边界
 
-1. **不是完整的“绝不重复投递”实现。** 插件不会在发送结果不明后换号重发，并已阻止原生即时纯文本回退。但 Hermes 自己的 delivery ledger / 中断恢复可能独立重投递；当前缺少可供插件关联的稳定恢复标识。该边界未解决，不能宣称崩溃恢复 exactly-once，也不建议据此直接替换稳定接入。
+1. **没有 exactly-once 保证。** OneBot 发送与本地 SQLite 提交不是原子事务；publisher 在重启时将 `sending` 置为 `unknown`，不自动重试，也不在已发出后的失败中换备号重发。保守 `unknown` 可能包括实际上未发送或已送达但未记录 ACK 的情况，需人工与 QQ 核对，不能自动补发。只有 `sent` 且带 `message_id` 才是已确认 OneBot ACK，不代表人已收到/读到。原生聊天仍依赖 Hermes 自己的执行/恢复语义；publisher 不提供宿主全局执行去重。
 2. 账号故障切换 ≠ Hermes 主机高可用。Gateway 停机、NapCat 不重放的消息、鉴权前事件和队列溢出可能丢失；没有跨机器选主。
 3. 私聊发送给离线主号的消息不会自动出现在备号。**跨账号入站冗余主要用于两个号都在的群。** 私聊要主动联系在线账号。
 4. OneBot message_id 可能各账号不同。去重采用逻辑空间/聊天/用户/秒级时间/文本，因此同人同群同秒相同文本可能被合并。
@@ -34,6 +36,32 @@ NapCat 备号 ──认证 WebSocket──┘
 6. QQ 自动化的登录与账号风控风险由用户自行评估。不要使用重要主号直接进行故障实验。
 
 详见[架构与可靠性边界](documentation/architecture.md)、[权限](documentation/permissions.md)和[测试地图](documentation/tests.md)。
+
+## v0.3 可选后台发布
+
+在拥有 QQ 连接的 profile 的 `gateway.platforms.onebot_fleet.extra` 下合并（号码仅为示例）：
+
+```yaml
+publisher:
+  enabled: true
+  port: 18791
+  clients:
+    - id: ai-radar
+      token_env: ONEBOT_FLEET_RADAR_PUBLISH_TOKEN
+      targets:
+        ai-test: obf:onebot-fleet:group:30001
+      max_per_hour: 6
+      quiet_hours:
+        start: '22:00'
+        end: '08:00'
+        time_zone: Asia/Shanghai
+```
+
+`30001` 仍必须属于 Fleet 群白名单。为该 client 配置独立随机发布 token（至少 32 个非空白字符），不要把 OneBot/QQ token 给 worker。发布端仅监听 `127.0.0.1`，所有路径要求严格 `Authorization: Bearer <发布token>`；发送 `POST /v1/publications`，JSON 为 `{"publication_id":"radar-20261018-01","target":"ai-test","text":"示例摘要"}`，文本长度 1–1800 字符。通过 `GET /v1/publications/{id}` 与 `GET /v1/status` 查询自己的状态。
+
+同 client 的 durable `publication_id` 必须稳定且不可改写：同 ID/相同正文和规范目标返回已有状态、不重发；改正文或目标返回 409。不要为网络重试或 `unknown` 随意换 ID。离线时允许 `pending` 等待，24 小时过期；有按 client 的每小时上限和有界队列。可选 `quiet_hours` 在服务端阻止静默期的新派发（含已暂存任务），期间仍可接收为 pending、查询及执行过期清理；省略则不启用。仅接受现代 Asia/Shanghai（固定 UTC+08）和不同的 HH:MM 起止点，区间含起点不含终点、可跨午夜。静默前已经发出的 RPC 无法撤回，不能保证远端绝不在边界后显示。worker 也必须执行一致的静默/新鲜度准入，不能把本地停止 POST 当成已暂存消息的撤回。该静默扩展仅完成离线测试，未启用或纳入上述真实验收。详见[后台任务与运行手册](documentation/cron.md)。
+
+worker 使用独立项目、venv 和不含 QQ/OneBot 凭据的 profile，仅持有窄目标发布 capability；显式构造环境变量 allowlist，不能继承整个主 profile 环境。cron 必须设置 `deliver=local`、`failure-deliver=local`，publisher 是唯一对外交付路径。**同一 Windows 用户下的分目录/venv/profile 不是 OS 沙箱，不防恶意同用户进程读取文件、环境或凭据。** 官方来源及安装信任链不因 publisher 改变；不要改用非官方 Hermes 来源。
 
 ## 开发与本地测试
 
@@ -54,7 +82,7 @@ $env:PYTHONPATH = 'src'
 
 ## 可选试装：先用全新隔离 profile
 
-更名前后均已完成上述本地真实双账号验收；这不是通用生产兼容性保证，也不是迁移现有 profile 的操作指南。新部署仍应使用全新隔离 profile，只有在接受以上实验边界后再试装。
+历史 v0.2 更名前后均完成上述本地真实双账号验收。v0.3 已通过窄范围本地跨 profile、原生定时任务与稳定发布 ID 重复提交/热重载验收，操作者确认两条发布各出现一次，普通群聊回复仍正常。双入口断网恢复及真实 ACK 丢失尚未通过；额外真实故障测试已暂缓。这不是通用生产兼容性保证，也不是迁移现有 profile 的操作指南。新部署仍应使用全新隔离 profile，只有在接受以上实验边界后再试装。
 
 1. 使用原生 CLI 创建空 profile，不复制原有 QQ 适配器配置：
 

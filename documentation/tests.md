@@ -1,9 +1,10 @@
 # Verification map
 
-## Existing coverage
+## Existing coverage — historical v0.2 baseline
 
-Offline Windows run: **45 tests passed, 39 subtests passed** on Python 3.12; Ruff lint and format checks passed.
-Real installed Hermes contract probe on Python 3.14 passed without network startup or profile modifications.
+Historical offline Windows run: **45 tests passed, 39 subtests passed** on Python 3.12; Ruff lint and format checks passed.
+Historical real installed Hermes contract probe on Python 3.14 passed without network startup or profile modifications.
+These counts/results are preserved as v0.2 evidence. The complete v0.3 safety suite, including optional server-side quiet hours, passed locally on Windows/Python 3.12 with **148 tests + 39 subtests**, plus Ruff lint/format. A real-Hermes Python 3.14 contract probe also passed without network/profile mutation. Narrow live publisher evidence is recorded below; it does not establish production readiness.
 
 Historical local live acceptance on 2026-10-18 used the same implementation before identifier renaming:
 three real user group messages exercised primary reply, standby handling @primary after disabling the
@@ -11,12 +12,12 @@ primary OneBot service, and return to primary after restoration. The ledger reco
 **3 handed_off / 3 sent**. Account IDs and private deployment details are not published. This is narrow
 local evidence, not a production verdict or proof of other features.
 
-Post-rename local check on 2026-10-18: both authenticated OneBot connections reported the
+Historical post-rename local check on 2026-10-18: both authenticated OneBot connections reported the
 expected account identity, online/good status and membership in the allowed test group.
 The renamed plugin passed the real-host contract probe and profile doctor; current owner/group
 allowlists and disabled tool access were rechecked.
 
-Post-rename v0.2.0 live acceptance repeated all three message steps on the same date:
+Historical post-rename v0.2.0 live acceptance repeated all three message steps on the same date:
 primary sent FLEET-1; after disabling only its OneBot listener, standby answered a structured
 @primary with FLEET-2; after restoring the listener, primary sent FLEET-3. The owner confirmed
 exactly one visible reply at each step. Starting from an empty renamed ledger, the final counts
@@ -44,11 +45,56 @@ The four Windows/Linux × Python 3.12/3.14 jobs passed for renamed commit `b487b
 Branch protection has not been verified; this is not yet an enforced merge gate.
 Real-Hermes probe is local-only because CI does not vendor a host installation.
 
-## Proposed tests (not completed)
+## v0.3 test map — offline coverage and separate narrow live evidence
+
+These automated tests exercise real local HTTP/SQLite with fake delivery, or adapter host/connection doubles; none logs into QQ or proves production readiness. The complete offline run above passed, including the quiet-hours additions; no live QQ action is part of the automated suite. Rules derive from [background operations](cron.md), [permissions](permissions.md),
+[storage](variables.md) and [architecture](architecture.md).
+
+| Use case / rule | Expected success and deny case | Evidence | Status |
+|---|---|---|---|
+| Explicit opt-in and scoped secrets | Disabled starts no resources; enabled requires explicit port/clients; weak/duplicate tokens and invalid fields rejected; captured credentials do not follow environment mutation | [Publisher tests](../tests/test_publisher.py), [publisher](../src/hermes_onebot_fleet/publisher.py) | Existing new automated unit/loopback source; run result not recorded here |
+| Authenticate every path | Missing/wrong/query token denied even on unknown routes and methods; other client's status/ID invisible | [Publisher tests](../tests/test_publisher.py), [permissions](permissions.md) | Existing new automated loopback source |
+| Loopback/HTTP hardening | Non-loopback Host, any Origin, query strings, malformed/duplicate JSON fields, unknown fields and >16 KiB payload denied; text only 1–1800 characters | [Publisher tests](../tests/test_publisher.py), [publisher](../src/hermes_onebot_fleet/publisher.py) | Existing new automated loopback source |
+| Immutable publication identity | Same client/ID/canonical target/text returns existing state across restart, no second callback; changed content/target is 409; clients have distinct ID spaces | [Publisher tests](../tests/test_publisher.py), [cron contract](cron.md) | Existing new automated SQLite/HTTP source |
+| Conservative uncertainty | Lost ACK, exception/cancellation and restart sending become unknown; duplicate/restart never replay; missing/invalid message_id is not confirmed sent | [Publisher tests](../tests/test_publisher.py), [adapter tests](../tests/test_adapter.py) | Existing new automated source |
+| Safe offline wait only | Proven NoRoute returns pending/refunds attempt; stable ID/payload survives safe reconnect; ordinary post-dispatch failure never tries standby | [Publisher tests](../tests/test_publisher.py), [adapter tests](../tests/test_adapter.py) | Existing new automated source |
+| Rate/queue/TTL | Persisted rate cap includes unknown; queued work also gated; queue bounded per client; 24h payload expiry keeps ID/hash tombstones; changed target policy rejects queued work | [Publisher tests](../tests/test_publisher.py), [variables](variables.md) | Existing new automated source |
+| Sole delivery path | Adapter reuses owned connections; unkeyed contextless cron fallback cannot send/mint an ID; native reply anchors preserved | [Adapter tests](../tests/test_adapter.py), [adapter](../src/hermes_onebot_fleet/adapter.py) | Existing new automated host-double source |
+| Server quiet hours | Strict modern Asia/Shanghai policy; start/end and midnight boundaries; pending intake/query stay available; queued/restarted work cannot newly dispatch in quiet; other clients remain fair; rate/expiry preserved; cooperative callback boundary cancellation becomes unknown | [Publisher tests](../tests/test_publisher.py) | Included in 148-test offline run, not enabled/live-tested |
+
+Run from this repository's independent development venv (not the Hermes managed environment):
+
+```powershell
+uv sync --extra dev --no-install-project
+$env:PYTHONPATH = 'src'
+.\.venv\Scripts\python.exe -m pytest -q tests/test_publisher.py tests/test_adapter.py
+.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m ruff check src tests tools plugin
+.\.venv\Scripts\python.exe -m ruff format --check src tests tools plugin
+```
+
+The existing [CI workflow](../.github/workflows/tests.yml) discovers offline tests, including new files,
+on its normal matrix. Branch-protection enforcement is still not verified; do not call this a confirmed
+merge gate. Guarded live checks remain manual and must not run from ordinary CI.
+
+## Narrow local publisher acceptance — 2026-10-18/19
+
+- Independent worker profile submitted one fixed cross-profile item and one native one-shot cron item. Both had `sent` plus distinct OneBot message IDs; the operator confirmed each appeared once.
+- Cron completed with `deliver=local`, `failure-deliver=local`; its native delivery was suppressed. The sanitized worker held only a narrow publication capability, no QQ/OneBot secrets.
+- Same-ID/same-payload POST after acceptance and after hot-reloading only the owning profile retained the original receipt. The outbound ledger gained only the two intended publications.
+- Real HTTP checks rejected anonymous/wrong capability (401), browser Origin/unauthorized target (403), and modified immutable content (409).
+- The operator also confirmed ordinary allowlisted owner-mention group chat still replied normally. No QQ guild/channel or group-management actions were used.
+- Both-entry offline recovery was not completed: standby login had expired, quick login failed, and extra live fault tests were paused. Primary listener was restored. Actual ACK-loss/crash ambiguity is covered by offline tests only, not a live pass.
+- Private deployment receipts remain outside this repository; no account IDs, tokens or message bodies are published here.
+- Subsequent optional server-side quiet-hours additions are offline-tested only; they were not enabled or included in this live acceptance.
+
+## Remaining guarded/manual tests
 
 | Use case | Rule / expected negative | Evidence | Type / status |
 |---|---|---|---|
-| Both accounts offline | Verify explicit failure without misleading success or ambiguous alternate replay | [Architecture](architecture.md), [adapter](../src/hermes_onebot_fleet/adapter.py) | Guarded live / pending; completed three-message failover tests do not cover this |
+| v0.3 live publication and offline recovery | One item gets one ACK-backed sent with message_id; same ID never resends; both accounts offline stays pending, reconnect before 24h may safely send; post-dispatch ACK loss becomes unknown without standby retry | [Background operations](cron.md), [architecture](architecture.md) | Partial narrow live pass for normal delivery/repeated ID; offline recovery paused, real ACK loss untested |
+| Worker isolation and sole delivery | Worker has no QQ tokens; independent project/venv/profile and explicit environment allowlist; deliver=local and failure-deliver=local cause no native cron/failure fallback; publish aliases stay scoped | [Permissions](permissions.md), [variables](variables.md) | Configuration/child-env audit + one real-host cron passed; not an OS sandbox proof |
+| Operator reconciliation | Distinguish accepted/pending from sent with message_id; unknown never auto-retried/new-ID resent; manually verify QQ before deliberate new work | [Background operations](cron.md) | Guarded live/manual / proposed |
 | Native owner controls | Unauthorized approvals denied; owner @ text clarification, commands and interrupt reach native flow | [Permissions](permissions.md), [flows](flows.md) | Guarded live / proposed |
 | Profile isolation | Distinct secret scope, ledger, namespace and user session prevent cross-profile access | [Variables](variables.md), [adapter](../src/hermes_onebot_fleet/adapter.py) | Real-host integration / proposed |
 | Managed PM enablement | PM resolves staged dependency without core mutation | [CLI](../src/hermes_onebot_fleet/cli.py) | Real-host integration / proposed |
@@ -56,16 +102,20 @@ Real-Hermes probe is local-only because CI does not vendor a host installation.
 
 ## Gaps / not a green shipping verdict
 
-1. **High: native Hermes delivery-ledger / crash-left recovery is not fenced by this plugin.**
-   It can call send again with changed content or no original event ID. Transport-local tests
-   do NOT establish host-wide at-most-once delivery. Stable durable host obligation identity /
-   terminal-uncertain semantics are needed before making that promise. No production assertion.
+1. **High: OneBot side effects and SQLite commits are not atomic; v0.3 is not exactly-once.**
+   Publisher unknown is conservative and never automatically retried; it may leave an unsent item
+   unsent or lose confirmation of an accepted send. Only sent + message_id confirms OneBot ACK,
+   never human receipt. Normal publisher/repeated-ID checks passed locally; crash/ACK-loss reconciliation remains untested live.
+   Unkeyed contextless native sends now fail closed, but local tests do not establish host-global
+   recovery fencing or at-most-once execution. Stable host obligation identity is still absent.
 2. Native resume may re-run model/tools outside plugin control; plugin ledger and host task store
    are not one transaction. Host task execution/recovery is deliberately not reimplemented here.
 3. Live account risk controls, mute permissions, actual NapCat versions, notify/cron and group
    approval UX remain unverified. A successful mock transport test is not QQ validation.
-4. FIFO task-context inheritance is not a universal durable identity. Canonical final reply anchors
-   are preferred, but contextless/proactive/recovery sends have no global dedup guarantee.
+4. FIFO task-context inheritance is not a universal durable identity. Native final reply anchors
+   remain; authenticated durable publication IDs are required for background sends. Contextless
+   proactive/old cron paths are denied, not silently routed or declared sent. Host-wide execution
+   recovery remains outside the publication identity domain.
 5. No recovery for pre-auth/overflow events, same-second identical-text collisions, cross-machine
    leader election, automatic retention, OS sandbox setup, or private messages to an offline bot.
 6. Local isolated wheel builds were attempted but failed in the build backend with

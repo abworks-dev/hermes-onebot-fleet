@@ -1,6 +1,6 @@
 # Hermes OneBot Fleet
 
-**实验性 v0.3.0 原生 Hermes 平台插件。loopback publisher 已完成本地跨 profile、定时发布、稳定 ID 重复提交及热重载验收；断网恢复与真实 ACK 丢失尚未完成，不是生产就绪声明。**
+**实验性 v0.4.0 原生 Hermes 平台插件。P0 账号生命周期/稳定主角色仅完成源码与离线测试，未部署或真实 QQ 联调。此前 v0.3 publisher 的窄范围本地验收不覆盖本次升级；断网恢复与真实 ACK 丢失仍未完成，不是生产就绪声明。**
 
 多个 NapCat / OneBot v11 账号作为同一 Hermes profile 的 QQ 入口。无需 NoneBot、外部 HTTP API 代理或修改 Hermes 核心。目前只支持文本；当前协议实现与验证范围仅限 OneBot v11 / NapCatQQ，不代表已兼容其他 OneBot 实现。**以下为历史 v0.2 系列验收记录，不覆盖 v0.3 publisher：** 更名前的同一实现已于 2026-10-18 完成本地真实双账号群聊主号回复、断开主号后由备号处理 @主号、恢复后回到主号的三条消息验收，账本为 3 条 `handed_off` / 3 条 `sent`。更名后的 v0.2.0 也已于同日完成相同三步实测：主号、备号、主号依次各回复一条，新增账本为 3 条 `handed_off` / 3 条 `sent`，无 `uncertain`，结束后双账号服务恢复。这些窄范围本地结果均不是生产验收。
 
@@ -16,11 +16,11 @@ NapCat 备号 ──认证 WebSocket──┘
 
 ## 已实现
 
-- 多账号并连、身份/在线探测、断线重连；发送前按优先级选健康账号，群消息检查账号是否在群。
+- 多账号并连、身份/在线探测、断线重连；业务准入独立持久化，发送前保留合格的当前主角色，不按优先级自动回主；群消息检查账号是否在群。
 - 群聊必须同时满足 **用户白名单 + 群白名单 + 结构化 @机器人**；机器人消息不触发。私聊也需要用户白名单。
 - 跨账号观察去重，固定逻辑会话标识，保留真正的人类 user_id；不伪造“统一 QQ 用户”。
 - SQLite 入站/发送账本、进程独占锁；取消/崩溃中的记录变为 uncertain，不由插件自动重放。
-- 入站排队任务在交给 Hermes 前重新校验当前权限，撤销授权会拒绝旧任务。
+- 入站、排队交接、原始回复锚点、选号与实际发送前重新校验准入 revision；暂停后再放行不会复活旧任务。
 - 接入 Hermes 原生会话、任务、命令和审批体系；不另写一套 Agent 执行器。
 - 配置与令牌按 profile 隔离；仅允许 loopback WebSocket；模型无任意 OneBot 动作工具。
 - v0.3 可显式启用适配器拥有的 loopback publisher：按 client/目标别名授权，独立 SQLite 持久去重，复用已有 OneBot 连接；不启用则不监听。
@@ -36,6 +36,12 @@ NapCat 备号 ──认证 WebSocket──┘
 6. QQ 自动化的登录与账号风控风险由用户自行评估。不要使用重要主号直接进行故障实验。
 
 详见[架构与可靠性边界](documentation/architecture.md)、[权限](documentation/permissions.md)和[测试地图](documentation/tests.md)。
+
+## v0.4 P0：人工准入，不自动轮号或强制登录
+
+新增 `allowed / paused / quarantined / observing` 持久化业务状态、本地显式管理 CLI、原始回复/revision 门禁、跨重启的稳定主角色。只有人工 `allow` 可解除隔离；恢复连接或恢复准入不抢回仍合格的当前主角色，升主另行决定。它不是封号识别器，也不控制 NapCat 自己的登录/恢复行为。
+
+先读[账号生命周期与管理命令](documentation/account-lifecycle.md)，再读[个人 QQ / NapCat 运维指南](documentation/qq-account-operations.md)和[日期、版本与信息来源](documentation/qq-account-sources.md)。升级前无 revision 的旧队列/回复拒绝；状态文件必须保留。降级旧插件会失去这些门禁，不能盲目回滚开流量。本次未操作线上 QQ 或现有插件，不增加自动轮号、强制保持登录或自动解封。
 
 ## v0.3 可选后台发布
 

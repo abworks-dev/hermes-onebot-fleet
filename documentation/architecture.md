@@ -41,8 +41,11 @@ need a verified cross-account QQ sequence mapping; it is not fabricated here.
 ## Outbound
 
 Canonical namespace + destination whitelist checked independently of inbound admission.
-Among verified healthy accounts, lowest numeric priority wins; account ID breaks ties.
-Group sends preflight actual membership using get_group_member_info. Read-only preflight failure
+v0.4 additionally requires persistent business admission and captured revision checks. Initial
+selection uses numeric priority/account ID; thereafter the current eligible primary is sticky,
+persisted across restart. Losing admission/health permits failover, but recovery does not preempt
+a still-eligible primary; manual promotion is separate from admission. Group sends preflight
+actual membership using get_group_member_info. Read-only target-only preflight failure
 can try another account; a send itself is NEVER replayed automatically on a different account.
 If all accounts are offline, native send returns failure, not a false delivery acknowledgment.
 Health is probed every 5 seconds and connections reconnect with capped exponential backoff.
@@ -68,7 +71,23 @@ canonical event ID) for correlation; task-context inheritance is not a durable p
 Background publishers require an authenticated durable publication identity; arbitrary unkeyed
 contextless sends fail closed.
 Recovered queued inputs recheck the current logical namespace, users, groups, accounts and
-mention target; revoked work becomes denied.
+mention target and the captured account admission revision; revoked work becomes denied.
+v0.4 native reply_to must also resolve to an admitted original inbound row and canonical target.
+Re-admission does not revive old revision-bound work. Selection and final pre-dispatch gates
+check both source reply admission and chosen account eligibility; no gate recalls an in-flight RPC.
+
+## v0.4 P0 business admission — offline-only upgrade
+
+[Account lifecycle](account-lifecycle.md) documents persistent allowed/paused/quarantined/observing
+state, manual CLI, audit, sticky-primary semantics, upgrade/rollback and concurrency boundaries.
+The sidecar is `<ledger filename>.accounts.sqlite3`; no Hermes internal schema is altered.
+Transport observations and account administration are separate: online/reconnect/timers never
+clear quarantine; pause does not stop NapCat's own recovery or terminate already-started host work.
+Initial configured accounts start allowed; unknown IDs fail closed. Old queued/reply work without
+a captured revision is denied. Do not discard state to release quarantine or reissue publications.
+This upgrade is source/offline-tested only, not deployed or QQ-tested. It does not add account
+rotation, forced login, automatic risk detection or automatic unquarantine. Prior live records
+below describe old versions, not validation of these new gates or sticky recovery policy.
 
 ## v0.3 adapter-owned loopback publisher
 
@@ -112,7 +131,7 @@ cannot be recovered by this in-process design. Initial pre-authentication events
 past the bounded 256-event transport queue can be dropped. Do not present this as a general
 message broker or total machine-failure failover. Running the same profile on two machines is unsupported.
 
-v0.3.0 remains text-only; it does not translate quoted message IDs across accounts, fetch image URLs,
+v0.4.0 remains text-only; it does not translate quoted message IDs across accounts, fetch image URLs,
 download files, expose arbitrary OneBot actions, or register agent tools. reply_to is not used to
 create native QQ quoted replies. Rich message/voice/file events are rejected, not summarized from metadata.
 No media, button, edit/streaming, reaction, account login automation, or standalone cron sender.

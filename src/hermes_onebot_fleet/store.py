@@ -47,6 +47,11 @@ class Store:
                 == 1
             )
 
+    def inbound(self, key):
+        with self.db() as db:
+            row = db.execute("SELECT * FROM inbound WHERE key=?", (key,)).fetchone()
+            return dict(row) if row else None
+
     def claim(self):
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")

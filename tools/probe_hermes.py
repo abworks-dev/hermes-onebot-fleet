@@ -4,9 +4,11 @@ Run via the selected Hermes interpreter/bootstrap, not the development venv.
 """
 
 import asyncio
+import inspect
 import json
 import sys
 import tempfile
+from dataclasses import asdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -16,7 +18,10 @@ from gateway.platform_registry import PlatformEntry
 from gateway.platform_registry import platform_registry as registry
 from gateway.platforms import _shared
 
+from hermes_onebot_fleet.account_state import AccountState
 from hermes_onebot_fleet.plugin import register
+from hermes_onebot_fleet.protocol import normalize_event
+from hermes_onebot_fleet.store import Store
 
 
 class Context:
@@ -63,13 +68,68 @@ async def probe():
             )
             assert source.user_id == "20001"
             assert (await adapter.get_chat_info(source.chat_id))["type"] == "group"
+            # Exercise the native retry body, excluding only its metrics decorator
+            # so this probe cannot emit delivery telemetry into a real profile.
+            native_send = inspect.unwrap(BasePlatformAdapter._send_with_retry)
             # The actual native wrapper cannot authorize unkeyed cron sends.
             # No transport is started and denied calls never touch a ledger.
             for text in ("native proactive attempt", "outer plain-text fallback"):
-                denied = await adapter._send_with_retry(source.chat_id, text, base_delay=0)
+                denied = await native_send(adapter, source.chat_id, text, base_delay=0)
                 assert not denied.success and not denied.retryable
                 assert "durable publisher ID" in denied.error
-            # Exercise the REAL host retry/fallback wrapper, not just send() in a mock.
+            # P0 positive and revoked-revision reply paths use temporary plugin
+            # ledgers and a fake transport, never a profile or actual socket.
+            adapter._store = Store(Path(directory) / "probe.sqlite3")
+            adapter._admission = AccountState(
+                Path(directory) / "probe.accounts.sqlite3", adapter.settings.logical_id, ["10001"]
+            )
+            item = normalize_event(
+                {
+                    "post_type": "message",
+                    "self_id": 10001,
+                    "user_id": 20001,
+                    "message_type": "group",
+                    "group_id": 30001,
+                    "message_id": 1,
+                    "time": 100,
+                    "message": [
+                        {"type": "at", "data": {"qq": "10001"}},
+                        {"type": "text", "data": {"text": "probe"}},
+                    ],
+                },
+                adapter.settings.accounts[0],
+                adapter.settings,
+            )
+            assert item is not None
+            payload = asdict(item)
+            payload["_admission_revision"] = adapter._admission.snapshot("10001")["revision"]
+            adapter._store.enqueue(item.dedup_key, payload)
+            adapter._store.inbound_result(item.dedup_key, "handed_off")
+            actions = []
+
+            class FakeTransport:
+                healthy = True
+
+                async def rpc(self, action, params):
+                    actions.append(action)
+                    if action == "get_group_member_info":
+                        return {"user_id": 10001}
+                    assert action == "send_group_msg"
+                    return {"message_id": 42}
+
+            adapter._connections = {"10001": FakeTransport()}
+            admitted = await native_send(
+                adapter, source.chat_id, "admitted probe", reply_to=item.dedup_key, base_delay=0
+            )
+            assert admitted.success and admitted.message_id == "42"
+            adapter._admission.change("10001", "pause", "probe only")
+            adapter._admission.change("10001", "allow", "probe re-admission")
+            revoked = await native_send(
+                adapter, source.chat_id, "late probe", reply_to=item.dedup_key, base_delay=0
+            )
+            assert not revoked.success and "admission" in revoked.error
+            assert actions == ["get_group_member_info", "send_group_msg"]
+            # Exercise the REAL host retry/fallback body, not just send() in a mock.
             from gateway.platforms.base import SendResult
 
             calls = []
@@ -81,7 +141,7 @@ async def probe():
                 )
 
             adapter.send = uncertain_send
-            result = await adapter._send_with_retry(source.chat_id, "probe", base_delay=0)
+            result = await native_send(adapter, source.chat_id, "probe", base_delay=0)
             assert not result.success and len(calls) == 1, "host replayed an uncertain send"
             # No connections started: validates ABC, native event shapes and terminal retry contract.
             print(
@@ -95,6 +155,8 @@ async def probe():
                         "profile_modified": False,
                         "uncertain_send_attempts": len(calls),
                         "native_unkeyed_attempts_denied": 2,
+                        "native_anchored_send_attempts": actions.count("send_group_msg"),
+                        "native_re_admitted_stale_reply_denied": not revoked.success,
                     }
                 )
             )

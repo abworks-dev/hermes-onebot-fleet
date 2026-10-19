@@ -6,7 +6,7 @@
 | Human private sender | Dispatch | Actual sender in allowed_users and not a configured bot | Dropped before ledger/model |
 | Human group sender | Dispatch | Actual sender in allowed_users AND group in allowed_groups AND explicit structured @configured bot | Dropped, including @all/textual CQ/reply-only |
 | Configured bot | Trigger Agent | Never, even if it is in a user whitelist | Dropped to prevent bot loops |
-| Hermes Agent | Anchored native chat reply | Canonical logical namespace and private/group destination allowlist; native reply anchors retained | SendResult failure, not retried |
+| Hermes Agent | Anchored native chat reply | Original handing_off/handed_off inbound, matching canonical target, current source admission revision; destination ACL and chosen account admission | SendResult failure, not retried |
 | Unkeyed/contextless proactive caller | Native Adapter.send, including old cron path | Durable publisher identity required for background sends | Fail closed; no native cron/standalone fallback |
 | Publisher client | Any HTTP path or method | Exactly one strict Bearer header; dedicated token selects configured client, including for unknown paths | 401 without valid credentials |
 | Publisher client | Submit publication | Authorized target alias, canonical target within current Fleet destination policy; exactly publication_id/target/text, text 1–1800 characters | 400 invalid shape/field, 403 unauthorized alias, no dispatch |
@@ -16,6 +16,8 @@
 | Publisher dispatch | Send queued item | Current client/target policy rechecked; per-client rate cap, bounded queue and 24h TTL | Rejected/expired or remains pending; no arbitrary OneBot API |
 | Worker cron | Deliver output/error | deliver=local and failure-deliver=local; only narrow publish capability may deliver externally | No native delivery fallback; failed/unknown bridge outcomes require review |
 | Local operator | Configure/read ledgers | OS filesystem permissions; HTTP publisher has no admin/configuration API | No application role system |
+| Local operator | Change account admission/primary | Existing sidecar; explicit account/reason/confirmation; quarantine only cleared by allow; promote requires allowed | Reject missing/unknown state or implicit release; audit mutation |
+| Configured physical account | Ingress/handoff/send | Persistent allowed state AND current revision at each relevant gate; health alone is not admission | No new handoff/send; old revoked queue becomes denied |
 
 Hermes' normal native gateway admission remains active via ONEBOT_FLEET_ALLOWED_USERS.
 Pairing, allow-all, global grants do not bypass the plugin's earlier local owner/group check.
@@ -25,7 +27,12 @@ or arbitrary RPC access. Target aliases are scoped by token-derived client, not 
 The adapter callback alone owns side effects through its existing OneBot sockets. No retry/reroute after
 mutating dispatch; only proven NoRoute before any mutating RPC may safely return a publication to pending.
 
-No row-level SQL security: both Fleet and publication SQLite files rely on code-enforced client checks
+Account management is local filesystem-authorized, not an authenticated multi-user admin service.
+Pause does not revoke an RPC already past final admission or stop an already-started Hermes task;
+old replies are nevertheless gated. Preserve account state/revisions across restart and rollback.
+See [P0 lifecycle and limitations](account-lifecycle.md); no live P0 deployment/test occurred.
+
+No row-level SQL security: Fleet, account-management and publication SQLite files rely on code-enforced client checks
 and local OS permissions. The publication database is separate from Hermes DB; never grant workers
 Hermes database-write access as a substitute for the HTTP capability. IDs/hash tombstones are durable;
 unknown is not an authorization to replay or change IDs. Only sent plus message_id confirms OneBot ACK,

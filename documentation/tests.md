@@ -1,5 +1,32 @@
 # Verification map
 
+## v0.4 P0 — current offline result, 2026-10-19
+
+Complete local Windows/Python 3.12 regression: **328 tests + 39 subtests passed**. Ruff lint/format
+passed. The installed Hermes/Python 3.14 native contract probe passed with `network_started=false`,
+`profile_modified=false`, one terminal uncertain-send attempt and two unkeyed proactive sends denied.
+It also exercised an admitted original reply and rejection of that old reply after pause/allow,
+using temporary plugin ledgers and a fake transport. The native retry body is inspected directly,
+excluding only its metrics decorator to avoid emitting profile telemetry.
+This is **not** a full Python 3.14 suite or live QQ test. No production/profile plugin was upgraded,
+Gateway reloaded, account switched, logged in, frozen or automatically released in this work.
+
+| P0 rule | Positive / negative coverage | Evidence |
+|---|---|---|
+| Persistent admission and revision | Restart/config re-add preserve blocked state; remove invalidates old revision; missing/unknown account/schema/namespace fail closed | [Account state tests](../tests/test_account_state.py), [state](../src/hermes_onebot_fleet/account_state.py) |
+| Explicit operator control | Missing confirmation/account/reason denied; status never initializes/reactivates state; allow and promote are separate; audit retained | [CLI tests](../tests/test_account_cli.py), [CLI](../src/hermes_onebot_fleet/cli.py) |
+| Sticky primary | Health failover selects backup; recovered high-priority account does not preempt it across restart; target-only membership failure preserves global preference | [Gate tests](../tests/test_account_gates.py), [review regressions](../tests/test_p0_review.py) |
+| All ingress/handoff gates | Blocked online account cannot enqueue; queued/legacy/re-admitted stale revision cannot reach host; ingress snapshot avoids split-read authorization | [Gate tests](../tests/test_account_gates.py), [review regressions](../tests/test_p0_review.py) |
+| Source reply admission | Reply must match an original handoff, target and current source revision; arbitrary anchors, late revoked/legacy work denied | [Gate tests](../tests/test_account_gates.py), [adapter tests](../tests/test_adapter.py) |
+| Pre-dispatch fencing | Source/chosen account revocation during awaited preflight or sending claim is fenced even after immediate allow; known no-send tombstone cannot replay | [Review regressions](../tests/test_p0_review.py), [adapter](../src/hermes_onebot_fleet/adapter.py) |
+| In-flight and publisher identity | Already-started RPC cannot be recalled; duplicate sent/unknown returns original receipt even when all accounts later pause; only never-attempted NoRoute may wait | [Gate tests](../tests/test_account_gates.py), [review regressions](../tests/test_p0_review.py), existing [publisher tests](../tests/test_publisher.py) |
+
+[Lifecycle and commands](account-lifecycle.md) define first-start allowed defaults, quarantine latch,
+local filesystem authorization, in-flight cutoff and upgrade/rollback limits. These tests do not
+detect actual account restrictions or validate NapCat recovery, manual verification, real risk
+controls, production reliability or remote exactly-once delivery. All older live evidence below
+is version-specific; historical priority-based automatic return-to-primary is not the v0.4 policy.
+
 ## Existing coverage — historical v0.2 baseline
 
 Historical offline Windows run: **45 tests passed, 39 subtests passed** on Python 3.12; Ruff lint and format checks passed.

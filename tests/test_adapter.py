@@ -8,7 +8,9 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
+from hermes_onebot_fleet.account_state import AccountState
 from hermes_onebot_fleet.config import Settings
+from hermes_onebot_fleet.protocol import Incoming
 from hermes_onebot_fleet.store import Store
 from hermes_onebot_fleet.transport import ActionUncertain
 
@@ -94,7 +96,28 @@ def test_native_registration_uses_fleet_identifiers(adapter_module):
     assert adapter_module.parse_target(address) == ("onebot-fleet", "group", "30001")
 
 
-def make(module, tmp_path):
+def admit_reply(adapter, key, kind="private", source="10001"):
+    from dataclasses import asdict
+
+    item = Incoming(
+        key,
+        key,
+        "20001",
+        "30001" if kind == "group" else "20001",
+        kind,
+        "question",
+        source,
+        100,
+        "onebot-fleet",
+        ("10001",),
+    )
+    payload = asdict(item)
+    payload["_admission_revision"] = adapter._admission.snapshot(source)["revision"]
+    adapter._store.enqueue(key, payload)
+    adapter._store.inbound_result(key, "handed_off")
+
+
+def make(module, tmp_path, *, anchors=True):
     import asyncio
 
     adapter = object.__new__(module.OneBotFleetAdapter)
@@ -102,6 +125,13 @@ def make(module, tmp_path):
     adapter._store = Store(tmp_path / "state.db")
     adapter._send_lock = asyncio.Lock()
     adapter._connections = {a.id: Connection(a.id) for a in adapter.settings.accounts}
+    adapter._admission = AccountState(
+        tmp_path / "accounts.db", "onebot-fleet", [a.id for a in adapter.settings.accounts]
+    )
+    if anchors:
+        for key in ("inbound-1", "logical-inbound", "incoming-one", "incoming-two"):
+            admit_reply(adapter, key)
+        admit_reply(adapter, "group-inbound-1", kind="group")
     return adapter
 
 
@@ -109,7 +139,7 @@ def make(module, tmp_path):
 async def test_failover_selects_standby_without_changing_target(adapter_module, tmp_path):
     a = make(adapter_module, tmp_path)
     a._connections["10001"].healthy = False
-    result = await a.send("obf:onebot-fleet:group:30001", "hello", reply_to="inbound-1")
+    result = await a.send("obf:onebot-fleet:group:30001", "hello", reply_to="group-inbound-1")
     assert result.success
     assert not a._connections["10001"].calls
     action, params = a._connections["10002"].calls[-1]
@@ -157,7 +187,7 @@ async def test_structured_text_and_context_dedup(adapter_module, tmp_path):
 
 @pytest.mark.asyncio
 async def test_ingress_duplicates_from_accounts_are_one_handoff(adapter_module, tmp_path):
-    a = make(adapter_module, tmp_path)
+    a = make(adapter_module, tmp_path, anchors=False)
     a._receive_events = True
     raw = {
         "post_type": "message",
@@ -206,7 +236,7 @@ async def test_preflight_disconnect_can_select_standby(adapter_module, tmp_path)
         raise ConnectionError("read-only preflight failed")
 
     a._connections["10001"].rpc = disconnected
-    assert (await a.send("obf:onebot-fleet:group:30001", "hello", reply_to="inbound-1")).success
+    assert (await a.send("obf:onebot-fleet:group:30001", "hello", reply_to="group-inbound-1")).success
     assert a._connections["10002"].calls[-1][0] == "send_group_msg"
 
 
@@ -216,7 +246,7 @@ async def test_repeated_connect_does_not_recover_live_state(adapter_module, tmp_
 
     from hermes_onebot_fleet.lock import InstanceLock
 
-    a = make(adapter_module, tmp_path)
+    a = make(adapter_module, tmp_path, anchors=False)
     a._lifecycle_lock = asyncio.Lock()
     a._running = False
     a._lock = InstanceLock(tmp_path / "instance.lock")
@@ -414,7 +444,7 @@ async def test_queued_work_rechecks_revoked_policy(adapter_module, tmp_path):
 
     from hermes_onebot_fleet.protocol import normalize_event
 
-    a = make(adapter_module, tmp_path)
+    a = make(adapter_module, tmp_path, anchors=False)
     raw = {
         "post_type": "message",
         "self_id": 10001,

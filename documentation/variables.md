@@ -3,11 +3,11 @@
 | Name | Consumer/source | Scope | Rotation/risk |
 |---|---|---|---|
 | accounts[].token_env | Name of a per-profile secret read via Hermes get_scoped_secret | Owning profile, never a config token value | Change matching NapCat WS token and profile secret; restart adapter; leaked token permits local bot control |
-| accounts[].id/ws_url/priority | Profile platform extra | Non-secret; QQ identifiers still personal data | Lower priority number wins; URL restricted to loopback |
+| accounts[].id/ws_url/priority | Profile platform extra | Non-secret; QQ identifiers still personal data | Initial/failover order uses lower priority number; eligible current primary stays sticky; URL restricted to loopback |
 | allowed_users/allowed_groups | Profile platform extra | Non-secret authorization policy | Empty denies all; never grant the group as a substitute for owner restriction |
 | logical_id | Profile platform extra | Durable session namespace | Keep stable during account failover; changing starts a new conversation namespace |
 | state_path | Profile platform extra | Relative to owning profile/plugin-data/onebot-fleet, or explicit absolute path | Fleet ledger contains text/QQ IDs; do not share directories across profiles; protect backups |
-| require_mention | Profile platform extra | Must be true in v0.3.0 | False is rejected |
+| require_mention | Profile platform extra | Must be true in v0.4.0 | False is rejected |
 | publisher.enabled | Profile platform extra | Adapter-owned, default false | Opt-in only; false starts no publication listener/worker |
 | publisher.port | Profile platform extra | Explicit loopback port when enabled; example 18791 | Bind only 127.0.0.1; choose a free port per owning profile; no public bind option |
 | publisher.clients[].id | Profile platform extra | Durable capability/ID namespace | Do not rename or recreate casually: identity is client + publication_id |
@@ -35,6 +35,11 @@ headers on all paths; do not enable HTTP debug/access logs that capture tokens o
   excludes text; protect the file and backups as private data. There is no general automatic Fleet
   ledger pruning. Stop the adapter and use a reviewed archive/prune policy; deleting dedup records can
   re-enable old-event processing.
+- v0.4 `<ledger filename>.accounts.sqlite3` stores account admission/revisions, sticky primary and
+  operator audit. It is independent of health, never contains credentials or automatically releases
+  quarantine. Reasons are manual labels: do not paste secrets/message content into them. Preserve
+  this sidecar with ledger backups; deletion is not an administration or rollback procedure. The
+  local accounts CLI cannot initialize or recreate missing state. See [lifecycle](account-lifecycle.md).
 - The separate publications.sqlite3 is beside the configured Fleet ledger, owned by the plugin,
   **not part of Hermes DB**. It stores client/ID, payload hash, alias/target/text, state, timestamps,
   rate attempts and ACK metadata, not Bearer tokens. Do not share a writable state directory between
@@ -58,6 +63,6 @@ that threat model.
 
 Before go-live: generate distinct random OneBot tokens (>=16 non-whitespace characters) and publish
 tokens (>=32), loopback-bind NapCat and publisher, confirm both logged-in identities, replace ALL example
-identifiers, review aliases and rate caps, protect profile .env and both SQLite files/backups, explicitly
+identifiers, review aliases and rate caps, protect profile .env and all message/admission/publication SQLite files and backups, explicitly
 select toolsets, test local/failure-local cron settings, and keep a tested configuration backup.
 **v0.3 narrow local cross-profile/cron and stable-ID/hot-reload checks passed; both-entry offline recovery and real ACK loss remain untested.** The worker credential audit found only its scoped publish capability, with no QQ/OneBot secret names in its child environment; this does not prove OS isolation from malicious same-user code.

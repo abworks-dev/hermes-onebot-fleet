@@ -15,6 +15,7 @@ from pathlib import Path
 from gateway.config import Platform
 from gateway.platforms.base import BasePlatformAdapter, MessageEvent, MessageType, SendResult
 
+from .account_state import AccountState
 from .config import Settings, qq_id
 from .lock import InstanceLock
 from .protocol import Incoming, currently_admitted, normalize_event
@@ -64,6 +65,7 @@ class OneBotFleetAdapter(BasePlatformAdapter):
         self._path = path
         self._lock = InstanceLock(str(path) + ".lock")
         self._store = None
+        self._admission = None
         self._receive_events = receive_events
         self._tasks = []
         self._connections = {}
@@ -97,6 +99,11 @@ class OneBotFleetAdapter(BasePlatformAdapter):
             try:
                 self._store = Store(self._path)
                 self._store.recover()
+                self._admission = AccountState(
+                    self._path.with_name(self._path.name + ".accounts.sqlite3"),
+                    self.settings.logical_id,
+                    [a.id for a in self.settings.accounts],
+                )
                 for connection in self._connections.values():
                     await connection.start()
                 self._tasks.append(asyncio.create_task(self._health_loop()))
@@ -138,12 +145,52 @@ class OneBotFleetAdapter(BasePlatformAdapter):
             finally:
                 self._lock.release()
 
+    def _account_allowed(self, account_id, revision=None):
+        return (
+            self._admission is not None
+            and account_id in self._connections
+            and self._admission.is_allowed(account_id, revision)
+        )
+
+    def _admitted_payload(self, payload):
+        """Old/unknown revisions fail closed, including work queued before upgrade."""
+        try:
+            data = json.loads(payload)
+            if not isinstance(data, dict):
+                return None
+            revision = data.pop("_admission_revision", None)
+            if type(revision) is not int:
+                return None
+            item = Incoming(**data)
+            if not currently_admitted(item, self.settings):
+                return None
+            if not self._account_allowed(item.physical_account, revision):
+                return None
+            return item
+        except (ValueError, TypeError, KeyError):
+            return None
+
+    def _reply_admitted(self, reply_to, chat_id):
+        if not isinstance(reply_to, str) or self._store is None:
+            return False
+        row = self._store.inbound(reply_to)
+        if row is None or row["state"] not in {"handing_off", "handed_off"}:
+            return False
+        item = self._admitted_payload(row["payload"])
+        return item is not None and target(item.logical_id, item.chat_type, item.chat_id) == chat_id
+
     async def _on_event(self, account, raw):
-        if not self._receive_events or self._store is None:
+        if not self._receive_events or self._store is None or self._admission is None:
             return
+        admission = self._admission.snapshot(account.id)
+        if admission["state"] != "allowed":
+            return
+        revision = admission["revision"]
         item = normalize_event(raw, account, self.settings)
         if item:
-            self._store.enqueue(item.dedup_key, asdict(item))
+            payload = asdict(item)
+            payload["_admission_revision"] = revision
+            self._store.enqueue(item.dedup_key, payload)
 
     async def _health_loop(self):
         while True:
@@ -162,9 +209,9 @@ class OneBotFleetAdapter(BasePlatformAdapter):
                 await asyncio.sleep(0.1)
                 continue
             try:
-                item = Incoming(**json.loads(row["payload"]))
-                if not currently_admitted(item, self.settings):
-                    self._store.inbound_result(row["key"], "denied", "policy changed before handoff")
+                item = self._admitted_payload(row["payload"])
+                if item is None:
+                    self._store.inbound_result(row["key"], "denied", "admission revoked before handoff")
                     continue
                 source = self.build_source(
                     chat_id=target(self.settings.logical_id, item.chat_type, item.chat_id),
@@ -197,10 +244,24 @@ class OneBotFleetAdapter(BasePlatformAdapter):
                 log.warning("QQ handoff uncertain: %s", type(exc).__name__)
 
     async def _choose(self, kind, identifier):
-        for account in sorted(self.settings.accounts, key=lambda a: (a.priority, a.id)):
+        if self._admission is None:
+            return None
+        accounts = sorted(self.settings.accounts, key=lambda a: (a.priority, a.id))
+        candidates = [
+            a.id for a in accounts if self._account_allowed(a.id) and self._connections[a.id].healthy
+        ]
+        primary = self._admission.select_primary(candidates)
+        # Target-specific membership failure does not change the global leader.
+        accounts.sort(key=lambda a: a.id != primary)
+        invalidated = set()
+        for account in accounts:
             connection = self._connections[account.id]
-            if not connection.healthy:
+            admission = self._admission.snapshot(account.id)
+            if admission["state"] != "allowed" or not connection.healthy:
+                invalidated.add(account.id)
                 continue
+            revision = admission["revision"]
+            member_ready = True
             if kind == "group":
                 try:
                     async with asyncio.timeout(2.0):
@@ -208,12 +269,36 @@ class OneBotFleetAdapter(BasePlatformAdapter):
                             "get_group_member_info",
                             {"group_id": int(identifier), "user_id": int(account.id), "no_cache": True},
                         )
-                    if str(member.get("user_id")) != account.id:
-                        continue
+                    member_ready = str(member.get("user_id")) == account.id
                 except (ActionError, ActionUncertain, ConnectionError, AttributeError, TimeoutError):
-                    continue  # Read-only preflight; safe to examine a standby.
-            return account, connection
+                    member_ready = False  # Read-only preflight; safe to examine a standby.
+            if self._account_allowed(account.id, revision) and connection.healthy:
+                if not member_ready:
+                    continue  # Target-only failure does not change global preference.
+                if invalidated:
+                    # Revocation/transport loss across awaited preflight is a
+                    # global failover, not just a one-target membership fallback.
+                    self._admission.select_primary(
+                        [
+                            a.id
+                            for a in sorted(self.settings.accounts, key=lambda a: (a.priority, a.id))
+                            if a.id not in invalidated
+                            and self._account_allowed(a.id)
+                            and self._connections[a.id].healthy
+                        ]
+                    )
+                return account, connection, revision
+            invalidated.add(account.id)
         return None
+
+    @staticmethod
+    def _recorded_result(row):
+        return SendResult(
+            success=row["state"] == "sent",
+            message_id=row["message_id"],
+            error=None if row["state"] == "sent" else "prior delivery unresolved; do not replay",
+            retryable=False,
+        )
 
     async def send(self, chat_id, content, reply_to=None, metadata=None):
         try:
@@ -236,32 +321,58 @@ class OneBotFleetAdapter(BasePlatformAdapter):
                     retryable=False,
                 )
             async with self._send_lock:
+                key = hashlib.sha256(
+                    json.dumps([origin, chat_id, content, reply_to], ensure_ascii=False).encode()
+                ).hexdigest()
+                if self._store is None:
+                    return SendResult(success=False, error="adapter ledger unavailable", retryable=False)
+                previous = self._store.outbound(key)
+                if previous is not None:
+                    # Admission changes cannot erase an ACK or turn an already
+                    # ambiguous attempt into a fresh NoRoute/pending retry.
+                    return self._recorded_result(previous)
+                if not PUBLICATION.get() and not self._reply_admitted(reply_to, chat_id):
+                    return SendResult(
+                        success=False, error="reply admission revoked or unavailable", retryable=False
+                    )
                 chosen = await self._choose(kind, identifier)
                 if chosen is None:
                     return SendResult(
                         success=False, error="no verified account available for target", retryable=False
                     )
-                account, connection = chosen
+                account, connection, revision = chosen
+                # Preflight awaited the peer: revoke stale permits after any pause,
+                # including pause -> allow while that read-only RPC was in flight.
+                if not self._account_allowed(account.id, revision) or not connection.healthy:
+                    return SendResult(
+                        success=False, error="no verified account available for target", retryable=False
+                    )
+                if not PUBLICATION.get() and not self._reply_admitted(reply_to, chat_id):
+                    return SendResult(
+                        success=False, error="reply admission revoked or unavailable", retryable=False
+                    )
                 # Native final replies carry canonical event IDs in reply_to;
                 # publisher IDs come from the authenticated immutable publication
                 # record, NOT caller-provided metadata or a per-attempt UUID.
-                key = hashlib.sha256(
-                    json.dumps([origin, chat_id, content, reply_to], ensure_ascii=False).encode()
-                ).hexdigest()
                 if not self._store.begin_send(key, chat_id, content, account.id):
-                    previous = self._store.outbound(key)
-                    return SendResult(
-                        success=previous["state"] == "sent",
-                        message_id=previous["message_id"],
-                        error=None
-                        if previous["state"] == "sent"
-                        else "prior delivery unresolved; do not replay",
-                        retryable=False,
-                    )
+                    return self._recorded_result(self._store.outbound(key))
                 params = {
                     "message": [{"type": "text", "data": {"text": content}}],
                     "group_id" if kind == "group" else "user_id": int(identifier),
                 }
+                # SQLite insertion can block behind another local writer. Recheck
+                # AFTER it, not only before it. A known pre-dispatch revocation
+                # keeps a terminal no-send tombstone; it is not a retry permit.
+                reply_allowed = PUBLICATION.get() or self._reply_admitted(reply_to, chat_id)
+                if (
+                    not reply_allowed
+                    or not self._account_allowed(account.id, revision)
+                    or not connection.healthy
+                ):
+                    self._store.send_result(key, "failed", error="admission revoked before dispatch")
+                    return SendResult(
+                        success=False, error="admission revoked before dispatch", retryable=False
+                    )
                 try:
                     result = await connection.rpc(
                         "send_group_msg" if kind == "group" else "send_private_msg", params

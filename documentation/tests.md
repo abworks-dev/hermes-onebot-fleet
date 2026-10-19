@@ -53,9 +53,39 @@ production acceptance. Source behavior is unchanged from the offline-tested v0.4
 
 **Not verified by this deployment:** full Gateway/OS restart, real QQ reply/standby takeover,
 real-risk recovery, transport reconnect delivery, revoked real model work or actual ACK loss.
-Sticky-primary, old-work fences and ambiguous-send behavior have offline regression evidence only.
-The original holds remain in place; real-message testing and any business release require explicit
-operator approval. Old versions do not enforce these holds: a downgrade must not reopen traffic.
+At the end of that deployment phase the original holds remained in place; release and real-message
+testing required separate operator approval. The subsequent approved group-message phase is below.
+Old-work fences and ambiguous sends still have offline evidence only. Old versions do not enforce
+these holds: a downgrade must not reopen traffic.
+
+## Guarded P0 group messages — 2026-10-19
+
+A separate operator approval permitted starting the existing local runtimes, completing required
+login/verification manually, then explicitly allowing the two confirmed usable accounts. Existing
+owner/group/structured-mention allowlists and disabled tools were retained. No guild/channel,
+friend/group-management action, deliberate QQ outage or account restriction was used.
+
+1. The allowlisted owner mentioned the initial primary; that primary answered the first marker.
+2. The operator-authorized local `pause` blocked that account's **business admission**, not its QQ
+   login or OneBot listener. A second owner message still mentioning it was answered by the standby.
+3. After explicit `allow` of the initial primary, a third owner message was answered by the same
+   standby. Re-admission did not preempt the stored current primary.
+
+The owner confirmed exactly one visible reply per step. Comparing private baseline/final snapshots
+found **exactly 3 new handed_off / 3 new sent**, each with a valid original revision/OneBot message
+ID and account sequence **initial primary → standby → standby**. No new failed/uncertain/pending
+message rows appeared; publication receipts were unchanged. Both authenticated services reported
+online with their expected identities at the final connectivity check.
+
+After confirming all three steps, the operator explicitly chose to **promote the initial primary
+back**. The local management action changed the stored primary only, without login or send calls;
+no fourth test message was sent. Both accounts ended `allowed`. This explicit promotion is not
+automatic failback. Private account IDs, receipts and runtime details are not committed here.
+
+This is narrow real **ordinary-group business-admission/sticky-selection** evidence. It does not
+validate network/QQ-process failure, freezes or their recovery, private-chat takeover, full Gateway/
+OS restart, real in-flight revocation, crash/ACK loss, automatic risk recognition, long-run stability
+or a global exactly-once guarantee. Optional additional fault tests remain outside this acceptance.
 
 ## Existing coverage — historical v0.2 baseline
 

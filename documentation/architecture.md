@@ -76,7 +76,7 @@ v0.4 native reply_to must also resolve to an admitted original inbound row and c
 Re-admission does not revive old revision-bound work. Selection and final pre-dispatch gates
 check both source reply admission and chosen account eligibility; no gate recalls an in-flight RPC.
 
-## v0.4 P0 business admission — offline-only upgrade
+## v0.4 P0 business admission — scoped acceptance
 
 [Account lifecycle](account-lifecycle.md) documents persistent allowed/paused/quarantined/observing
 state, manual CLI, audit, sticky-primary semantics, upgrade/rollback and concurrency boundaries.
@@ -85,11 +85,14 @@ Transport observations and account administration are separate: online/reconnect
 clear quarantine; pause does not stop NapCat's own recovery or terminate already-started host work.
 Initial configured accounts start allowed; unknown IDs fail closed. Old queued/reply work without
 a captured revision is denied. Do not discard state to release quarantine or reissue publications.
-Source tests and a separately authorized, business-held test-profile deployment/reload passed;
-see the [guarded local acceptance](tests.md#guarded-local-p0-deployment--2026-10-19). No v0.4 QQ
-message/login or real failover was tested. It does not add rotation, forced login, automatic risk
-detection or automatic unquarantine. Prior live records below describe old versions, not validation
-of these new gates or sticky recovery policy.
+Source tests, a separately authorized held-profile deployment/reload and three real group replies
+passed; see [local deployment](tests.md#guarded-local-p0-deployment--2026-10-19) and
+[business-switch acceptance](tests.md#guarded-p0-group-messages--2026-10-19). Replies followed
+initial primary → standby → same standby after initial-primary re-admission. Switching used local
+business pause only, not QQ/network outage or account restrictions. The operator subsequently
+requested explicit promotion back to the initial primary; that was not automatic failback.
+No rotation, forced login, automatic risk detection or unquarantine was added. Older live records
+below remain version-specific and do not validate v0.4 behavior.
 
 ## v0.3 adapter-owned loopback publisher
 

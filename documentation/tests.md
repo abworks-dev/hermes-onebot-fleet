@@ -8,8 +8,11 @@ passed. The installed Hermes/Python 3.14 native contract probe passed with `netw
 It also exercised an admitted original reply and rejection of that old reply after pause/allow,
 using temporary plugin ledgers and a fake transport. The native retry body is inspected directly,
 excluding only its metrics decorator to avoid emitting profile telemetry.
-This is **not** a full Python 3.14 suite or live QQ test. No production/profile plugin was upgraded,
-Gateway reloaded, account switched, logged in, frozen or automatically released in this work.
+The local host probe itself is **not** a full host-integration suite or live QQ test. Separately,
+source commit `289de62` passed all four Windows/Linux × Python 3.12/3.14 offline CI jobs
+([run 39201736434](https://github.com/abworks-dev/hermes-onebot-fleet/actions/runs/39201736434)).
+No production/profile plugin was upgraded, Gateway reloaded, account switched, logged in, frozen
+or automatically released in this work.
 
 | P0 rule | Positive / negative coverage | Evidence |
 |---|---|---|

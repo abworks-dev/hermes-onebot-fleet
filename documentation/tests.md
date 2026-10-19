@@ -11,8 +11,8 @@ excluding only its metrics decorator to avoid emitting profile telemetry.
 The local host probe itself is **not** a full host-integration suite or live QQ test. Separately,
 source commit `289de62` passed all four Windows/Linux × Python 3.12/3.14 offline CI jobs
 ([run 39201736434](https://github.com/abworks-dev/hermes-onebot-fleet/actions/runs/39201736434)).
-No production/profile plugin was upgraded, Gateway reloaded, account switched, logged in, frozen
-or automatically released in this work.
+During that implementation phase no profile plugin was upgraded or Gateway reloaded. A subsequent,
+separately authorized test-profile deployment is recorded below; it is not a QQ message acceptance.
 
 | P0 rule | Positive / negative coverage | Evidence |
 |---|---|---|
@@ -29,6 +29,33 @@ local filesystem authorization, in-flight cutoff and upgrade/rollback limits. Th
 detect actual account restrictions or validate NapCat recovery, manual verification, real risk
 controls, production reliability or remote exactly-once delivery. All older live evidence below
 is version-specific; historical priority-based automatic return-to-primary is not the v0.4 policy.
+
+## Guarded local P0 deployment — 2026-10-19
+
+This is a separately approved **business-held test-profile deployment**, not live QQ message or
+production acceptance. Source behavior is unchanged from the offline-tested v0.4 implementation.
+
+- Backed up the old plugin/configuration and checked SQLite snapshots; stopped only the owning
+  test profile. Seeded both account business holds **before the first v0.4 adapter connect**.
+- Refreshed the host plugin manager with the transport disabled before reactivating that profile,
+  preventing a cached pre-P0 adapter from briefly handling traffic. Shared Gateway PID stayed the
+  same; no core patch, other-profile restart, NapCat launch, QQ login or forced account outage.
+- Verified the copied v0.4 source matches the repository. Running the account-state/CLI/gate/review
+  regressions against the **actual deployed package path** passed **180 tests** on Windows/Python 3.12.
+  Those tests use isolated temporary stores and fake transports; they do not mutate production ledgers.
+- Applied a test quarantine and attempted `observe`; quarantine remained latched across a native
+  unload/reload of only the test profile. Final administrative state: one account `quarantined`,
+  one `paused`, no current primary and no account `allowed`. This is an operator test state, not a
+  diagnosis of a QQ restriction. No automatic allow or login operation was used.
+- Original message ledger stayed **3 handed_off / 6 sent**, publication ledger **2 sent**. No new
+  publication was submitted and no QQ test message was sent. Private receipts/backups remain local;
+  account IDs, tokens and configuration are not committed here.
+
+**Not verified by this deployment:** full Gateway/OS restart, real QQ reply/standby takeover,
+real-risk recovery, transport reconnect delivery, revoked real model work or actual ACK loss.
+Sticky-primary, old-work fences and ambiguous-send behavior have offline regression evidence only.
+The original holds remain in place; real-message testing and any business release require explicit
+operator approval. Old versions do not enforce these holds: a downgrade must not reopen traffic.
 
 ## Existing coverage — historical v0.2 baseline
 

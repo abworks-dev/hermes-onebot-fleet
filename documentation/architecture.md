@@ -85,9 +85,11 @@ Transport observations and account administration are separate: online/reconnect
 clear quarantine; pause does not stop NapCat's own recovery or terminate already-started host work.
 Initial configured accounts start allowed; unknown IDs fail closed. Old queued/reply work without
 a captured revision is denied. Do not discard state to release quarantine or reissue publications.
-This upgrade is source/offline-tested only, not deployed or QQ-tested. It does not add account
-rotation, forced login, automatic risk detection or automatic unquarantine. Prior live records
-below describe old versions, not validation of these new gates or sticky recovery policy.
+Source tests and a separately authorized, business-held test-profile deployment/reload passed;
+see the [guarded local acceptance](tests.md#guarded-local-p0-deployment--2026-10-19). No v0.4 QQ
+message/login or real failover was tested. It does not add rotation, forced login, automatic risk
+detection or automatic unquarantine. Prior live records below describe old versions, not validation
+of these new gates or sticky recovery policy.
 
 ## v0.3 adapter-owned loopback publisher
 

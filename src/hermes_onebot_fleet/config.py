@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from .delivery_budget import BudgetPolicy
 from .publisher import PublisherSettings
 
 
@@ -70,6 +71,7 @@ class Settings:
     state_path: Path = Path("onebot-fleet.sqlite3")
     require_mention: bool = True
     publisher: PublisherSettings = field(default_factory=PublisherSettings)
+    budget: BudgetPolicy = field(default_factory=BudgetPolicy)
 
     def __post_init__(self) -> None:
         if self.require_mention is not True:
@@ -87,6 +89,7 @@ class Settings:
             "state_path",
             "require_mention",
             "publisher",
+            "budget",
             "group_sessions_per_user",
             "thread_sessions_per_user",
         }
@@ -130,4 +133,5 @@ class Settings:
             Path(path),
             mention,
             PublisherSettings.from_mapping(mapping.get("publisher", {})),
+            BudgetPolicy.from_mapping(mapping.get("budget", {})),
         )

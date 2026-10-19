@@ -19,6 +19,8 @@ from gateway.platform_registry import platform_registry as registry
 from gateway.platforms import _shared
 
 from hermes_onebot_fleet.account_state import AccountState
+from hermes_onebot_fleet.delivery_budget import DeliveryBudget
+from hermes_onebot_fleet.health import HealthState
 from hermes_onebot_fleet.plugin import register
 from hermes_onebot_fleet.protocol import normalize_event
 from hermes_onebot_fleet.store import Store
@@ -82,6 +84,10 @@ async def probe():
             adapter._store = Store(Path(directory) / "probe.sqlite3")
             adapter._admission = AccountState(
                 Path(directory) / "probe.accounts.sqlite3", adapter.settings.logical_id, ["10001"]
+            )
+            adapter._health = HealthState(Path(directory) / "health.sqlite3", adapter.settings.logical_id)
+            adapter._budget = DeliveryBudget(
+                Path(directory) / "budget.sqlite3", adapter.settings.logical_id, adapter.settings.budget
             )
             item = normalize_event(
                 {

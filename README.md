@@ -1,6 +1,6 @@
 # Hermes OneBot Fleet
 
-**实验性 v0.4.0 原生 Hermes 平台插件。P0 已完成离线回归、受控部署及三条真实群消息验收：主号回复、业务暂停后备号接管、原主号恢复准入后不抢主。故障注入仅为本地业务暂停，不覆盖 QQ 掉线、风控恢复或真实 ACK 丢失，不是生产就绪声明。**
+**实验性 v0.5.0 原生 Hermes 平台插件。新增 P1/P2 仅交付源码、离线测试与文档，未部署或操作线上账号；v0.4 历史 P0 实测不覆盖本版。没有生产就绪、免封或 exactly-once 保证。**
 
 多个 NapCat / OneBot v11 账号作为同一 Hermes profile 的 QQ 入口。无需 NoneBot、外部 HTTP API 代理或修改 Hermes 核心。目前只支持文本；当前协议实现与验证范围仅限 OneBot v11 / NapCatQQ，不代表已兼容其他 OneBot 实现。**以下为历史 v0.2 系列验收记录，不覆盖 v0.3 publisher：** 更名前的同一实现已于 2026-10-18 完成本地真实双账号群聊主号回复、断开主号后由备号处理 @主号、恢复后回到主号的三条消息验收，账本为 3 条 `handed_off` / 3 条 `sent`。更名后的 v0.2.0 也已于同日完成相同三步实测：主号、备号、主号依次各回复一条，新增账本为 3 条 `handed_off` / 3 条 `sent`，无 `uncertain`，结束后双账号服务恢复。这些窄范围本地结果均不是生产验收。
 
@@ -36,6 +36,12 @@ NapCat 备号 ──认证 WebSocket──┘
 6. QQ 自动化的登录与账号风控风险由用户自行评估。不要使用重要主号直接进行故障实验。
 
 详见[架构与可靠性边界](documentation/architecture.md)、[权限](documentation/permissions.md)和[测试地图](documentation/tests.md)。
+
+## v0.5 P1/P2：分层健康、共享预算与本地告警
+
+新增身份/传输/在线/后台/目标独立观测和持久锁存 circuit，全部账号的原生回复与 publisher 共用一个预算，按原始年龄拒绝旧任务并保留未知结果不重放。提供 `health`、`budget`、`alerts` 本地 CLI 与可独立运行的 JSONL 告警消费器，业务池不可用无需依赖 QQ 来记录告警。
+
+**本次不部署，不自动轮号、不强制登录、不自动解熔断。** 告警消费器不是已安装常驻服务，JSONL 记录不等于通知送达；尚未配置邮件/Webhook/离机监控。运维输出可能包含本地账号/目标标识，不含 Token、消息正文或验证材料。详见[完整策略、命令、状态文件及边界](documentation/resilience.md)；最终离线结果见[测试地图](documentation/tests.md)。
 
 ## v0.4 P0：人工准入，不自动轮号或强制登录
 

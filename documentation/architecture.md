@@ -76,6 +76,24 @@ v0.4 native reply_to must also resolve to an admitted original inbound row and c
 Re-admission does not revive old revision-bound work. Selection and final pre-dispatch gates
 check both source reply admission and chosen account eligibility; no gate recalls an in-flight RPC.
 
+## v0.5 resilience — source/offline scope only
+
+Read-only observations separate transport, identity, online, backend-good and target evidence.
+Persisted account/target circuits are distinct vetoes from P0 admission; successful health checks,
+re-admission or promotion never clear them. Target circuits restrict outbound for that target, not
+new authorized inbound; no mutating send probes or automatic half-open/reset are added.
+
+All accounts, native replies and publisher callbacks share one persisted budget. Pre-dispatch
+reservation is never refunded; completion and explicit exclusive-owner restart recovery extend
+cooldown fences, preventing stale reservation timestamps from collapsing actual spacing. Original
+work age is checked before handoff and dispatch, including after blocking/awaited preflight. Only
+proven never-dispatched publisher work may defer the same ID; ambiguous sends never replay.
+
+Health incidents and a standalone local JSONL/cursor consumer do not depend on QQ delivery.
+They are not a deployed service or external notification destination, and same-host observation is
+not host HA. See [resilience policy and commands](resilience.md) for privacy, persistence, manual
+reset, limits and explicitly unperformed live acceptance.
+
 ## v0.4 P0 business admission — scoped acceptance
 
 [Account lifecycle](account-lifecycle.md) documents persistent allowed/paused/quarantined/observing

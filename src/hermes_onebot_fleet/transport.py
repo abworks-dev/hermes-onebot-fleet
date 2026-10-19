@@ -41,15 +41,21 @@ class OneBotConnection:
         account: Account,
         token: str | Callable[[], str] | None,
         on_event: Callable[[dict[str, Any]], Any],
+        *,
+        on_observation: Callable[[dict[str, Any]], Any] | None = None,
     ):
         self.account = account
         self._token = token
         self._on_event = on_event
+        self._on_observation = on_observation
         self._session: aiohttp.ClientSession | None = None
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._runner: asyncio.Task | None = None
         self._pending: dict[str, tuple[asyncio.Future, str]] = {}
         self._healthy = False
+        self._identity = "unknown"
+        self._online = None
+        self._good = None
         self._ready = asyncio.Event()
         self._stopping = False
         self._events: asyncio.Queue = asyncio.Queue(maxsize=256)
@@ -63,6 +69,15 @@ class OneBotConnection:
     @property
     def healthy(self) -> bool:
         return self.connected and self._healthy
+
+    @property
+    def observation(self) -> dict:
+        return {
+            "connected": self.connected,
+            "identity": self._identity,
+            "online": self._online if self.connected else None,
+            "good": self._good if self.connected else None,
+        }
 
     async def start(self) -> None:
         """Start background reconnecting; use connect() to await confirmed health."""
@@ -135,21 +150,36 @@ class OneBotConnection:
         # A periodic probe must not create an event-loss window on a connection
         # whose identity was already verified. New sockets start unverified.
         ws = self._ws
+        identity, online, good = "unknown", None, None
         try:
             login = await self.rpc("get_login_info", {}, timeout=5)
-            status = await self.rpc("get_status", {}, timeout=5)
-            verified = (
-                isinstance(login, dict)
-                and qq_id(login.get("user_id")) == self.account.id
-                and isinstance(status, dict)
-                and status.get("online") is True
+            identity = (
+                "verified"
+                if isinstance(login, dict) and qq_id(login.get("user_id")) == self.account.id
+                else "mismatch"
             )
+            status = await self.rpc("get_status", {}, timeout=5)
+            online = status.get("online") if isinstance(status, dict) else None
+            good = status.get("good") if isinstance(status, dict) else None
+            online = online if type(online) is bool else None
+            good = good if type(good) is bool else None
+            verified = identity == "verified" and online is True and good is not False
         except (ConnectionError, ActionError, ActionUncertain, ValueError):
             verified = False
+            online, good = None, None
         # A late response from an obsolete probe cannot authenticate a new socket.
         if self._ws is not ws:
             return False
+        self._identity, self._online, self._good = identity, online, good
         self._healthy = verified and self.connected
+        if self._on_observation is not None:
+            try:
+                result = self._on_observation(self.observation)
+                if inspect.isawaitable(result):
+                    await result
+            except Exception:
+                self._healthy = False
+                log.error("OneBot observation persistence failed; readiness denied")
         if self._healthy:
             self._ready.set()
         else:

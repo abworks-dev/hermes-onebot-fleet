@@ -7,7 +7,10 @@
 | allowed_users/allowed_groups | Profile platform extra | Non-secret authorization policy | Empty denies all; never grant the group as a substitute for owner restriction |
 | logical_id | Profile platform extra | Durable session namespace | Keep stable during account failover; changing starts a new conversation namespace |
 | state_path | Profile platform extra | Relative to owning profile/plugin-data/onebot-fleet, or explicit absolute path | Fleet ledger contains text/QQ IDs; do not share directories across profiles; protect backups |
-| require_mention | Profile platform extra | Must be true in v0.4.0 | False is rejected |
+| require_mention | Profile platform extra | Must be true | False is rejected |
+| budget.global_per_hour / target_per_hour | Fleet platform extra, not publisher | Shared across all accounts and native/publisher entries; default 60/30 | Persisted charged attempts, no refund/account-switch reset; integers 1..3600 |
+| budget.min_interval_seconds / target_interval_seconds | Fleet platform extra | Default 5/10 seconds, both apply | Finite 1..3600; completion and exclusive-owner recovery extend fences |
+| budget.max_pending_age_seconds | Fleet platform extra | Original work age, default 900 seconds | Finite 1..86400; distinct from publisher 24h text-retention TTL; no fresh age on retry |
 | publisher.enabled | Profile platform extra | Adapter-owned, default false | Opt-in only; false starts no publication listener/worker |
 | publisher.port | Profile platform extra | Explicit loopback port when enabled; example 18791 | Bind only 127.0.0.1; choose a free port per owning profile; no public bind option |
 | publisher.clients[].id | Profile platform extra | Durable capability/ID namespace | Do not rename or recreate casually: identity is client + publication_id |
@@ -19,7 +22,9 @@
 | ONEBOT_FLEET_HOME_CHANNEL | Owning profile .env | Optional native notification target | Not a publisher/cron bypass: destination ACL and v0.3 context/durable-key guard still apply |
 | Worker environment allowlist | Explicit child-process launch configuration | Independent worker project/venv/profile | Allow only necessary model/runtime variables and narrow publish token; exclude all QQ tokens and unrelated parent secrets |
 
-All publisher settings are nested under gateway.platforms.onebot_fleet.extra.publisher.
+Publisher settings are nested under gateway.platforms.onebot_fleet.extra.publisher. Shared budget
+settings are under gateway.platforms.onebot_fleet.extra.budget and cannot be disabled; see
+[resilience policy](resilience.md) for exact schema and independent health/alert controls.
 The [operations guide](cron.md) contains the opt-in example and HTTP contract. Source examples use
 fictitious identifiers; replace them privately, never publish runtime paths, real QQ IDs or secret values.
 Official repository/source selection is unchanged by this feature.
@@ -40,6 +45,15 @@ headers on all paths; do not enable HTTP debug/access logs that capture tokens o
   quarantine. Reasons are manual labels: do not paste secrets/message content into them. Preserve
   this sidecar with ledger backups; deletion is not an administration or rollback procedure. The
   local accounts CLI cannot initialize or recreate missing state. See [lifecycle](account-lifecycle.md).
+- v0.5 `<ledger>.health.sqlite3` stores observations, circuits, local incidents and operator audit;
+  necessary account/target IDs remain local private operational data. `<ledger>.budget.sqlite3`
+  stores stable intent/target hashes, permanent charges, completion/recovery pacing and policy.
+  Neither contains tokens or message bodies, but neither is disposable or a safe public artifact.
+  Health/incident histories have no automatic general pruning. Status output limits are not retention.
+- Optional alert JSONL and its `.cursor.json` are local, at-least-once observer output/state, not QQ
+  delivery or a configured external notification destination. Protect their paths and back them up;
+  missing/unreadable/stale health is reported by an independently run consumer, not by installing a
+  supervisor. Diagnostic CLI reads never initialize missing sidecars. See [resilience](resilience.md).
 - The separate publications.sqlite3 is beside the configured Fleet ledger, owned by the plugin,
   **not part of Hermes DB**. It stores client/ID, payload hash, alias/target/text, state, timestamps,
   rate attempts and ACK metadata, not Bearer tokens. Do not share a writable state directory between

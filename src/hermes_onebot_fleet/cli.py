@@ -2,11 +2,15 @@
 
 import argparse
 import json
+import math
 import shutil
 import sqlite3
+import time
 from pathlib import Path
 
 from .account_state import AccountState
+from .delivery_budget import DeliveryBudget
+from .health import HealthState
 from .store import Store
 
 
@@ -29,11 +33,83 @@ def main():
     accounts.add_argument("--account")
     accounts.add_argument("--reason")
     accounts.add_argument("--confirm", action="store_true")
+    health = commands.add_parser(
+        "health", help="Inspect diagnostics or explicitly reset a circuit; no QQ probes"
+    )
+    health.add_argument("--state", required=True, type=Path)
+    health.add_argument("--action", choices=["status", "events", "alerts", "reset"], default="status")
+    health.add_argument("--account")
+    health.add_argument("--target")
+    health.add_argument("--reason")
+    health.add_argument("--confirm", action="store_true")
+    budget = commands.add_parser("budget", help="Inspect shared budget; never refund or clear reservations")
+    budget.add_argument("--state", required=True, type=Path)
+    budget.add_argument("--action", choices=["status", "audit"], default="status")
+    alerts = commands.add_parser(
+        "alerts", help="Export alerts independently of QQ; does not install a service"
+    )
+    alerts.add_argument("--state", required=True, type=Path)
+    alerts.add_argument("--output", required=True, type=Path)
+    alerts.add_argument("--follow", action="store_true")
+    alerts.add_argument("--interval", type=float, default=10)
+    alerts.add_argument("--stale-after", type=float, default=30)
     stage = commands.add_parser(
         "stage-plugin", help="Stage new plugin source only; does not enable or change profile config"
     )
     stage.add_argument("--hermes-home", required=True, type=Path)
     args = parser.parse_args()
+    if args.command in {"health", "budget", "alerts"}:
+        if not args.state.is_file():
+            parser.error("state database does not exist")
+        try:
+            if args.command == "alerts":
+                from .alerts import AlertWatcher
+
+                if not math.isfinite(args.interval) or not 1 <= args.interval <= 3600:
+                    parser.error("interval must be finite and in 1..3600 seconds")
+                watcher = AlertWatcher(
+                    args.state.with_name(args.state.name + ".health.sqlite3"),
+                    args.output,
+                    stale_after=args.stale_after,
+                )
+                while True:
+                    print(json.dumps(watcher.poll(), ensure_ascii=False), flush=True)
+                    if not args.follow:
+                        break
+                    time.sleep(args.interval)
+                return
+            if args.command == "budget":
+                state = DeliveryBudget.open_existing(
+                    args.state.with_name(args.state.name + ".budget.sqlite3")
+                )
+                result = state.status() if args.action == "status" else {"audit": state.audit()}
+            else:
+                state = HealthState.open_existing(args.state.with_name(args.state.name + ".health.sqlite3"))
+                if args.action != "reset":
+                    if (
+                        args.account is not None
+                        or args.target is not None
+                        or args.reason is not None
+                        or args.confirm
+                    ):
+                        parser.error("health inspection does not accept mutation arguments")
+                    result = (
+                        state.status()
+                        if args.action == "status"
+                        else {args.action: getattr(state, args.action)()}
+                    )
+                else:
+                    if not args.confirm or not args.account or not args.reason:
+                        parser.error("circuit reset requires --account, --reason and --confirm")
+                    if args.account not in {entry["account_id"] for entry in state.status()["accounts"]}:
+                        parser.error("unknown observed account")
+                    result = state.reset(args.account, args.target, reason=args.reason)
+        except KeyboardInterrupt:
+            return
+        except (ValueError, OSError, RuntimeError, sqlite3.Error):
+            parser.error("invalid operation or unavailable local state; no QQ operation was performed")
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return
     if args.command == "accounts":
         if not args.state.is_file():
             parser.error("state database does not exist")
@@ -94,7 +170,7 @@ def main():
     )
     # Hermes PM reads plugin-local project dependencies. Never pip into its environment.
     (destination / "pyproject.toml").write_text(
-        '[project]\nname="hermes-onebot-fleet-directory"\nversion="0.4.0"\n'
+        '[project]\nname="hermes-onebot-fleet-directory"\nversion="0.5.0"\n'
         'requires-python=">=3.12,<3.15"\ndependencies=["aiohttp>=3.12,<4"]\n',
         encoding="utf-8",
     )

@@ -128,6 +128,25 @@ def make(module, tmp_path, *, anchors=True):
     adapter._admission = AccountState(
         tmp_path / "accounts.db", "onebot-fleet", [a.id for a in adapter.settings.accounts]
     )
+    from hermes_onebot_fleet.delivery_budget import DeliveryBudget
+    from hermes_onebot_fleet.health import HealthState
+
+    budget_path = tmp_path / "budget.db"
+    import time
+
+    now = [time.time()]
+    if budget_path.exists():
+        now[0] = max(now[0], DeliveryBudget.open_existing(budget_path).status()["now"]) + 11
+
+    def progressing_clock():
+        now[0] += 11
+        return now[0]
+
+    adapter._budget = DeliveryBudget(
+        budget_path, "onebot-fleet", adapter.settings.budget, clock=progressing_clock
+    )
+    adapter._budget_wait = {}
+    adapter._health = HealthState(tmp_path / "health.db", "onebot-fleet")
     if anchors:
         for key in ("inbound-1", "logical-inbound", "incoming-one", "incoming-two"):
             admit_reply(adapter, key)

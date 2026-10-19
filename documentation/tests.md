@@ -1,6 +1,36 @@
 # Verification map
 
-## v0.4 P0 — current offline result, 2026-10-19
+## v0.5 P1/P2 — source/offline verification, 2026-10-19
+
+Complete local Windows/Python 3.12 regression: **627 tests + 39 subtests passed in 79.43s**.
+Ruff check/format passed for 34 Python files, dependency lock updated to 0.5.0 without new packages.
+The installed Hermes/Python 3.14 contract probe passed using the committed dependency environment
+without launcher maintenance: `network_started=false`, `profile_modified=false`, one terminal
+uncertain-send attempt, two unkeyed sends denied, one original anchored send and its old-revision
+reply denied after pause/allow. It uses temporary stores/fake transport, not a live daemon exercise.
+
+A first standard bootstrap invocation entered the host's pre-existing source-update dependency
+completion and was stopped; it is **not** counted as a side-effect-free probe. The final probe reads
+selected site-packages directly without bootstrap/launch preparation. No Fleet profile/plugin was
+upgraded, no Gateway/NapCat restart or QQ operation was performed, and no external notification
+service was configured or tested. CI results, when available, are recorded separately from local tests.
+
+| Rule | Offline coverage |
+|---|---|
+| Independent evidence and locked circuits | [Health state](../tests/test_health.py): identity/offline/backend/unknown kept distinct; exact-scope manual reset does not allow/promote or clear other scopes |
+| Global budget across accounts/entries | [Budget state](../tests/test_delivery_budget.py): atomic limits, no refund/switch reset, delayed completion, restart fences, current policy, clock rollback and transaction failures |
+| Real adapter orchestration | [Integration](../tests/test_resilience_integration.py): native+publisher sharing, target-only circuits retain inbound, deferred never-sent work vs terminal unknown, original TTL across slow preflight/claim, completion failure preserves ACK but holds further work |
+| Read-only transport evidence | [Health transport](../tests/test_resilience_transport.py), [RPC tests](../tests/test_transport.py): offline/null/good=false/identity mismatch even if status fails, no mutating probes |
+| Local operator boundary | [CLI](../tests/test_resilience_cli.py): no state initialization, explicit confirmed exact reset, no secret echo, no sidecar/output clobber |
+| QQ-independent alert consumer | [Alerts](../tests/test_alerts.py): durable cursor/coalescing, stale/unavailable observer, bounded history, corrupt cursor/output refusal, crash window and path protection |
+| Review race regressions | [Edge cases](../tests/test_resilience_edges.py): original age crosses expiry during preflight/claim, identity evidence survives later status failure |
+| Existing safety contracts | Full earlier P0, publisher, ACL, native-loader and uncertainty regressions remain in the same suite |
+
+[Resilience policy](resilience.md) defines in-flight limits, persistence/privacy, defaults and what
+remains unverified. Local incident logs/JSONL are not proof of delivery to an external operator;
+real restriction recovery, delayed/lost remote ACK, long soak and host failure are not accepted.
+
+## v0.4 P0 — historical offline result, 2026-10-19
 
 Complete local Windows/Python 3.12 regression: **328 tests + 39 subtests passed**. Ruff lint/format
 passed. The installed Hermes/Python 3.14 native contract probe passed with `network_started=false`,

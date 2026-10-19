@@ -23,6 +23,7 @@ import re
 import sqlite3
 import time
 from collections.abc import Awaitable, Callable, Mapping
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -39,10 +40,20 @@ _STATES = ("pending", "sending", "sent", "unknown", "rejected", "expired")
 _MAX_PAYLOAD = 16 * 1024
 _PAYLOAD_TTL = 24 * 3600
 _MAX_PENDING = 1000
+# Internal callback provenance only; callers cannot set this through HTTP payloads.
+PUBLICATION_CREATED = ContextVar("onebot_fleet_publication_created", default=None)
 
 
 class NoRoute(Exception):
     """Delivery guarantees that NO mutating RPC was attempted; retry is safe."""
+
+
+class Deferred(NoRoute):
+    """A durable shared budget refused admission BEFORE any side-effect claim."""
+
+    def __init__(self, next_at: float):
+        self.next_at = next_at
+        super().__init__("shared delivery budget deferred")
 
 
 @dataclass(frozen=True)
@@ -585,9 +596,13 @@ class Publisher:
             timeout = min(timeout, quiet_hours.seconds_until_start(now))
         try:
             async with asyncio.timeout(timeout):
-                result = await self._deliver(
-                    self.stable_key(row["client"], row["id"]), row["canonical_target"], row["text"]
-                )
+                created_token = PUBLICATION_CREATED.set(row["created"])
+                try:
+                    result = await self._deliver(
+                        self.stable_key(row["client"], row["id"]), row["canonical_target"], row["text"]
+                    )
+                finally:
+                    PUBLICATION_CREATED.reset(created_token)
             if not isinstance(result, dict) or result.get("state") not in {"sent", "unknown", "rejected"}:
                 self._finish(row, "unknown", error="delivery_unknown")
                 return
@@ -602,7 +617,7 @@ class Publisher:
                 account=self._safe_id(result.get("account"), account=True),
                 error=None if state == "sent" else "delivery_" + state,
             )
-        except NoRoute:
+        except NoRoute as exc:
             # This explicit contract is the ONLY exception permitted to undo sending.
             # Share route backoff across queued IDs so a full queue cannot cause
             # a storm of read-only route probes while its destination is offline.
@@ -614,7 +629,13 @@ class Publisher:
                 self._db.execute(
                     "UPDATE publications SET status='pending',retry_at=?,error='route_unavailable' "
                     "WHERE client=? AND id=?",
-                    (self._clock() + self.NO_ROUTE_BACKOFF, row["client"], row["id"]),
+                    (
+                        max(self._clock() + self.NO_ROUTE_BACKOFF, exc.next_at)
+                        if isinstance(exc, Deferred)
+                        else self._clock() + self.NO_ROUTE_BACKOFF,
+                        row["client"],
+                        row["id"],
+                    ),
                 )
         except asyncio.CancelledError:
             self._finish(row, "unknown", error="delivery_unknown")

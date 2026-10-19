@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from contextvars import ContextVar
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -17,9 +18,11 @@ from gateway.platforms.base import BasePlatformAdapter, MessageEvent, MessageTyp
 
 from .account_state import AccountState
 from .config import Settings, qq_id
+from .delivery_budget import DeliveryBudget
+from .health import HealthState
 from .lock import InstanceLock
 from .protocol import Incoming, currently_admitted, normalize_event
-from .publisher import NoRoute, Publisher
+from .publisher import PUBLICATION_CREATED, Deferred, NoRoute, Publisher
 from .store import Store
 from .transport import ActionError, ActionUncertain, OneBotConnection
 
@@ -66,6 +69,9 @@ class OneBotFleetAdapter(BasePlatformAdapter):
         self._lock = InstanceLock(str(path) + ".lock")
         self._store = None
         self._admission = None
+        self._health = None
+        self._budget = None
+        self._budget_wait = {}
         self._receive_events = receive_events
         self._tasks = []
         self._connections = {}
@@ -88,7 +94,12 @@ class OneBotFleetAdapter(BasePlatformAdapter):
                 await self._on_event(current, raw)
 
             self._connections[account.id] = OneBotConnection(
-                account, lambda current=account: current.resolve_token(secrets), callback
+                account,
+                lambda current=account: current.resolve_token(secrets),
+                callback,
+                on_observation=lambda observation, identifier=account.id: self._observe_health(
+                    identifier, observation
+                ),
             )
 
     async def connect(self, *, is_reconnect=False):
@@ -104,6 +115,17 @@ class OneBotFleetAdapter(BasePlatformAdapter):
                     self.settings.logical_id,
                     [a.id for a in self.settings.accounts],
                 )
+                self._health_failed = False
+                self._health = HealthState(
+                    self._path.with_name(self._path.name + ".health.sqlite3"), self.settings.logical_id
+                )
+                self._budget = DeliveryBudget(
+                    self._path.with_name(self._path.name + ".budget.sqlite3"),
+                    self.settings.logical_id,
+                    self.settings.budget,
+                )
+                self._budget.recover()
+                self._budget_failed = False
                 for connection in self._connections.values():
                     await connection.start()
                 self._tasks.append(asyncio.create_task(self._health_loop()))
@@ -152,6 +174,29 @@ class OneBotFleetAdapter(BasePlatformAdapter):
             and self._admission.is_allowed(account_id, revision)
         )
 
+    def _observe_health(self, account_id, observation):
+        try:
+            self._health.observe(account_id, **observation)
+        except Exception:
+            self._health_failed = True
+            log.error("Fleet diagnostic store unavailable; business delivery held")
+
+    def _report_health(self, account_id, kind, address=None):
+        try:
+            self._health.report(account_id, kind, address)
+        except Exception:
+            self._health_failed = True
+            log.error("Fleet diagnostic store unavailable; business delivery held")
+
+    def _operational(self, account_id, address=None):
+        health = getattr(self, "_health", None)
+        return (
+            health is not None
+            and not getattr(self, "_health_failed", False)
+            and not getattr(self, "_budget_failed", False)
+            and health.is_eligible(account_id, address)
+        )
+
     def _admitted_payload(self, payload):
         """Old/unknown revisions fail closed, including work queued before upgrade."""
         try:
@@ -164,7 +209,9 @@ class OneBotFleetAdapter(BasePlatformAdapter):
             item = Incoming(**data)
             if not currently_admitted(item, self.settings):
                 return None
-            if not self._account_allowed(item.physical_account, revision):
+            if not self._account_allowed(item.physical_account, revision) or not self._operational(
+                item.physical_account
+            ):
                 return None
             return item
         except (ValueError, TypeError, KeyError):
@@ -183,11 +230,11 @@ class OneBotFleetAdapter(BasePlatformAdapter):
         if not self._receive_events or self._store is None or self._admission is None:
             return
         admission = self._admission.snapshot(account.id)
-        if admission["state"] != "allowed":
+        if admission["state"] != "allowed" or not self._operational(account.id):
             return
         revision = admission["revision"]
         item = normalize_event(raw, account, self.settings)
-        if item:
+        if item and self._operational(account.id):
             payload = asdict(item)
             payload["_admission_revision"] = revision
             self._store.enqueue(item.dedup_key, payload)
@@ -197,7 +244,23 @@ class OneBotFleetAdapter(BasePlatformAdapter):
             await asyncio.gather(
                 *(c.check_health() for c in self._connections.values()), return_exceptions=True
             )
+            for account_id, connection in self._connections.items():
+                observation = getattr(connection, "observation", None)
+                if observation is not None:
+                    self._observe_health(account_id, observation)
+            if not any(
+                c.healthy and self._account_allowed(a) and self._operational(a)
+                for a, c in self._connections.items()
+            ):
+                # Local durable alert, never a message sent through the broken QQ pool.
+                self._report_health(self.settings.accounts[0].id, "pool_unavailable")
+            else:
+                self._report_health(self.settings.accounts[0].id, "pool_available")
             await asyncio.sleep(5)
+
+    @staticmethod
+    def _fresh(created, max_age):
+        return created is None or (type(created) in (int, float) and 0 <= time.time() - created <= max_age)
 
     async def _drain(self):
         while True:
@@ -210,8 +273,12 @@ class OneBotFleetAdapter(BasePlatformAdapter):
                 continue
             try:
                 item = self._admitted_payload(row["payload"])
-                if item is None:
-                    self._store.inbound_result(row["key"], "denied", "admission revoked before handoff")
+                if item is None or not self._fresh(
+                    row["created"], self._budget.policy.max_pending_age_seconds
+                ):
+                    self._store.inbound_result(
+                        row["key"], "denied", "admission revoked or pending expired before handoff"
+                    )
                     continue
                 source = self.build_source(
                     chat_id=target(self.settings.logical_id, item.chat_type, item.chat_id),
@@ -247,8 +314,11 @@ class OneBotFleetAdapter(BasePlatformAdapter):
         if self._admission is None:
             return None
         accounts = sorted(self.settings.accounts, key=lambda a: (a.priority, a.id))
+        address = target(self.settings.logical_id, kind, identifier)
         candidates = [
-            a.id for a in accounts if self._account_allowed(a.id) and self._connections[a.id].healthy
+            a.id
+            for a in accounts
+            if self._account_allowed(a.id) and self._connections[a.id].healthy and self._operational(a.id)
         ]
         primary = self._admission.select_primary(candidates)
         # Target-specific membership failure does not change the global leader.
@@ -257,10 +327,12 @@ class OneBotFleetAdapter(BasePlatformAdapter):
         for account in accounts:
             connection = self._connections[account.id]
             admission = self._admission.snapshot(account.id)
-            if admission["state"] != "allowed" or not connection.healthy:
+            if admission["state"] != "allowed" or not connection.healthy or not self._operational(account.id):
                 invalidated.add(account.id)
                 continue
             revision = admission["revision"]
+            if not self._operational(account.id, address):
+                continue  # Target circuit cannot consume the entire account or leader preference.
             member_ready = True
             if kind == "group":
                 try:
@@ -270,9 +342,19 @@ class OneBotFleetAdapter(BasePlatformAdapter):
                             {"group_id": int(identifier), "user_id": int(account.id), "no_cache": True},
                         )
                     member_ready = str(member.get("user_id")) == account.id
-                except (ActionError, ActionUncertain, ConnectionError, AttributeError, TimeoutError):
-                    member_ready = False  # Read-only preflight; safe to examine a standby.
-            if self._account_allowed(account.id, revision) and connection.healthy:
+                    if not member_ready:
+                        self._report_health(account.id, "target_unavailable", address)
+                except ActionError:
+                    member_ready = False
+                    self._report_health(account.id, "target_unavailable", address)
+                except (ActionUncertain, ConnectionError, AttributeError, TimeoutError):
+                    # An inconclusive read is NOT evidence of a group restriction.
+                    member_ready = False
+            if (
+                self._account_allowed(account.id, revision)
+                and connection.healthy
+                and self._operational(account.id)
+            ):
                 if not member_ready:
                     continue  # Target-only failure does not change global preference.
                 if invalidated:
@@ -285,6 +367,7 @@ class OneBotFleetAdapter(BasePlatformAdapter):
                             if a.id not in invalidated
                             and self._account_allowed(a.id)
                             and self._connections[a.id].healthy
+                            and self._operational(a.id)
                         ]
                     )
                 return account, connection, revision
@@ -335,6 +418,17 @@ class OneBotFleetAdapter(BasePlatformAdapter):
                     return SendResult(
                         success=False, error="reply admission revoked or unavailable", retryable=False
                     )
+                # Old pending work is not flushed in a recovery burst. Never mint
+                # a fresh publication ID to bypass this deliberate expiry.
+                created = PUBLICATION_CREATED.get()
+                if not PUBLICATION.get():
+                    anchor = self._store.inbound(reply_to)
+                    created = anchor["created"] if anchor else None
+                budget = getattr(self, "_budget", None)
+                if budget is None:
+                    return SendResult(success=False, error="shared budget unavailable", retryable=False)
+                if not self._fresh(created, budget.policy.max_pending_age_seconds):
+                    return SendResult(success=False, error="pending delivery expired", retryable=False)
                 chosen = await self._choose(kind, identifier)
                 if chosen is None:
                     return SendResult(
@@ -343,7 +437,11 @@ class OneBotFleetAdapter(BasePlatformAdapter):
                 account, connection, revision = chosen
                 # Preflight awaited the peer: revoke stale permits after any pause,
                 # including pause -> allow while that read-only RPC was in flight.
-                if not self._account_allowed(account.id, revision) or not connection.healthy:
+                if (
+                    not self._account_allowed(account.id, revision)
+                    or not connection.healthy
+                    or not self._operational(account.id, chat_id)
+                ):
                     return SendResult(
                         success=False, error="no verified account available for target", retryable=False
                     )
@@ -354,6 +452,14 @@ class OneBotFleetAdapter(BasePlatformAdapter):
                 # Native final replies carry canonical event IDs in reply_to;
                 # publisher IDs come from the authenticated immutable publication
                 # record, NOT caller-provided metadata or a per-attempt UUID.
+                permit = budget.reserve(key, chat_id)
+                if not permit["allowed"]:
+                    # No send ledger claim or mutating RPC; publisher may wait on
+                    # the SAME ID. A native reply is terminal, never backgrounded.
+                    if PUBLICATION.get() and permit["reason"] != "prior_reservation":
+                        self._budget_wait[key] = permit["next_at"]
+                    return SendResult(success=False, error="shared sending budget denied", retryable=False)
+                self._budget_wait.pop(key, None)
                 if not self._store.begin_send(key, chat_id, content, account.id):
                     return self._recorded_result(self._store.outbound(key))
                 params = {
@@ -363,15 +469,22 @@ class OneBotFleetAdapter(BasePlatformAdapter):
                 # SQLite insertion can block behind another local writer. Recheck
                 # AFTER it, not only before it. A known pre-dispatch revocation
                 # keeps a terminal no-send tombstone; it is not a retry permit.
+                max_age = budget.policy.max_pending_age_seconds
                 reply_allowed = PUBLICATION.get() or self._reply_admitted(reply_to, chat_id)
                 if (
                     not reply_allowed
                     or not self._account_allowed(account.id, revision)
                     or not connection.healthy
+                    or not self._operational(account.id, chat_id)
                 ):
                     self._store.send_result(key, "failed", error="admission revoked before dispatch")
                     return SendResult(
                         success=False, error="admission revoked before dispatch", retryable=False
+                    )
+                if not self._fresh(created, max_age):
+                    self._store.send_result(key, "failed", error="pending delivery expired before dispatch")
+                    return SendResult(
+                        success=False, error="pending delivery expired before dispatch", retryable=False
                     )
                 try:
                     result = await connection.rpc(
@@ -385,20 +498,34 @@ class OneBotFleetAdapter(BasePlatformAdapter):
                     ):
                         raise ActionUncertain("send acknowledged without valid message id")
                     self._store.send_result(key, "sent", message_id=message_id)
+                    self._report_health(account.id, "send_ack", chat_id)
                     return SendResult(success=True, message_id=str(message_id))
                 except ActionError:
+                    # An explicit rejection is target evidence, NOT proof of a
+                    # frozen account. Never try a second account for this intent.
+                    self._report_health(account.id, "target_rejected", chat_id)
                     self._store.send_result(key, "failed", error="OneBot explicitly rejected send")
                     return SendResult(success=False, error="OneBot rejected send", retryable=False)
                 except asyncio.CancelledError:
+                    self._report_health(account.id, "outcome_unknown", chat_id)
                     self._store.send_result(key, "uncertain", error="cancelled during send")
                     raise
                 except Exception as exc:
+                    self._report_health(account.id, "outcome_unknown", chat_id)
                     self._store.send_result(key, "uncertain", error=type(exc).__name__)
                     return SendResult(
                         success=False,
                         error="delivery outcome uncertain; no automatic resend",
                         retryable=False,
                     )
+                finally:
+                    try:
+                        budget.complete(key)
+                    except Exception:
+                        # Preserve known ACKs and ambiguous results, but do not
+                        # continue sending without a persisted cooldown fence.
+                        self._budget_failed = True
+                        log.error("Fleet cooldown persistence failed; business delivery held")
         except (ValueError, TypeError):
             return SendResult(success=False, error="invalid or unauthorized QQ target", retryable=False)
 
@@ -417,6 +544,9 @@ class OneBotFleetAdapter(BasePlatformAdapter):
             json.dumps([origin, chat_id, content, None], ensure_ascii=False).encode()
         ).hexdigest()
         row = self._store.outbound(key)
+        next_at = self._budget_wait.pop(key, None)
+        if row is None and next_at is not None:
+            raise Deferred(next_at)
         if result.success:
             return {
                 "state": "sent",

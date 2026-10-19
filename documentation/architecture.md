@@ -76,7 +76,7 @@ v0.4 native reply_to must also resolve to an admitted original inbound row and c
 Re-admission does not revive old revision-bound work. Selection and final pre-dispatch gates
 check both source reply admission and chosen account eligibility; no gate recalls an in-flight RPC.
 
-## v0.5 resilience — source/offline scope only
+## v0.5 resilience — offline and guarded local deployment
 
 Read-only observations separate transport, identity, online, backend-good and target evidence.
 Persisted account/target circuits are distinct vetoes from P0 admission; successful health checks,
@@ -90,9 +90,11 @@ work age is checked before handoff and dispatch, including after blocking/awaite
 proven never-dispatched publisher work may defer the same ID; ambiguous sends never replay.
 
 Health incidents and a standalone local JSONL/cursor consumer do not depend on QQ delivery.
-They are not a deployed service or external notification destination, and same-host observation is
-not host HA. See [resilience policy and commands](resilience.md) for privacy, persistence, manual
-reset, limits and explicitly unperformed live acceptance.
+A separately authorized test-profile upgrade started an independent local watcher without QQ
+credentials; it is not an installed OS service, external notification destination or host HA.
+See [deployment evidence](tests.md#guarded-v05-deployment-and-local-watcher--2026-10-19) and
+[resilience policy and commands](resilience.md) for privacy, persistence, manual reset and limits.
+Real v0.5 message/fault tests and external notification delivery remain unverified.
 
 ## v0.4 P0 business admission — scoped acceptance
 

@@ -11,9 +11,11 @@ reply denied after pause/allow. It uses temporary stores/fake transport, not a l
 
 A first standard bootstrap invocation entered the host's pre-existing source-update dependency
 completion and was stopped; it is **not** counted as a side-effect-free probe. The final probe reads
-selected site-packages directly without bootstrap/launch preparation. No Fleet profile/plugin was
-upgraded, no Gateway/NapCat restart or QQ operation was performed, and no external notification
-service was configured or tested. CI results, when available, are recorded separately from local tests.
+selected site-packages directly without bootstrap/launch preparation. During that source-only phase
+no Fleet profile/plugin was upgraded or Gateway/NapCat restarted, and no QQ operation or external
+notification test was performed. Source commit `f0165f9` passed all four Windows/Linux × Python
+3.12/3.14 offline CI jobs ([run 39212419697](https://github.com/abworks-dev/hermes-onebot-fleet/actions/runs/39212419697)).
+A later, separately approved scoped deployment/local-watcher check is recorded below.
 
 | Rule | Offline coverage |
 |---|---|
@@ -29,6 +31,40 @@ service was configured or tested. CI results, when available, are recorded separ
 [Resilience policy](resilience.md) defines in-flight limits, persistence/privacy, defaults and what
 remains unverified. Local incident logs/JSONL are not proof of delivery to an external operator;
 real restriction recovery, delayed/lost remote ACK, long soak and host failure are not accepted.
+
+## Guarded v0.5 deployment and local watcher — 2026-10-19
+
+A separate operator authorization permitted upgrading the existing test profile and starting
+local alert consumption. This is deployment/observation evidence, not a v0.5 real-message or
+failure-injection acceptance.
+
+- Stopped only the owning profile using the native control surface; cold-copied its plugin,
+  configuration and complete plugin state directory (including WAL/SHM present at the time).
+  Verified canonical SQLite snapshots and **28 persistent backup-file hashes**. No core patch,
+  shared Gateway restart, NapCat restart, QQ login/logout or send action was performed.
+- Staged v0.5 source matches the repository; refreshed the host plugin manager while this
+  transport was disabled, then reactivated it. Both account admission revisions, both allowed
+  states and the manually selected current primary were preserved exactly.
+- The actual staged package passed **299 P1/P2 tests** on Windows/Python 3.12, using temporary
+  stores and mock/local-only transports. They did not mutate the live ledgers or diagnostics.
+- Both existing Gateway-owned authenticated connections reported the expected identity,
+  online/good status and no diagnostics/circuits. Original message/publication counts stayed
+  unchanged. New shared-budget state uses the documented defaults with no reservations;
+  this is configuration/startup verification, not proof of real-send throttling.
+- Started a separate singleton watcher with an explicit OS-environment allowlist, no injected
+  QQ/publisher credentials and no Hermes bootstrap. Its 10-second polls/30-second stale threshold,
+  fresh cursor, running process and empty stderr were checked. It exported the startup transient
+  network/pool incidents as **resolved**; they are not account-risk diagnoses.
+- A separate filesystem-only fixture with a nonexistent health database exported one
+  `observer_unavailable` transition and zero duplicate transitions on the next poll. It neither
+  interrupted the Gateway nor changed its live health database.
+
+The output and cursor are private local files, not email/Webhook/QQ notification delivery.
+Same-user file access is not sandboxed. No OS service, autostart, supervisor or off-host monitor
+was installed. The watcher must remain running; its own exit/host outage needs a separate outer
+monitor. Account IDs, exact paths, credentials and operational receipts remain outside the repo.
+No real v0.5 chat/failover, remote ACK loss, account restriction, host failure, automatic restart
+or external notification delivery was tested.
 
 ## v0.4 P0 — historical offline result, 2026-10-19
 

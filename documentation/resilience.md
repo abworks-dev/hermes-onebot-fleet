@@ -1,6 +1,6 @@
 # v0.5 P1/P2：分层健康、共享预算与独立本地告警
 
-**本次只交付源码、离线验证和文档；不部署、重载现有 profile，不操作真实 QQ/NapCat。完整本地回归 627 tests + 39 subtests、Ruff 及已安装 Hermes 的无网络契约探针通过；不是线上验收。** v0.4 的历史受控验收不能替代本版验收，也不是继续操作账号的授权。
+**源码阶段完成 627 tests + 39 subtests、Ruff 和已安装 Hermes 的无网络契约探针。随后于 2026-10-19 经另行授权，完成单个测试 profile 的受控升级与独立本地 watcher 启动检查；没有做本版真实消息、故障注入或外部通知送达验收。** v0.4 历史受控验收不替代本版验证，后续操作仍需相应授权。
 
 前置安全规则见[账号生命周期](account-lifecycle.md)、[QQ 运维指南](qq-account-operations.md)及[信息来源](qq-account-sources.md)。以下参数是本地工程策略，**不是腾讯认可的“免封阈值”**。
 
@@ -101,11 +101,11 @@ hermes-onebot-fleet alerts --state /path/to/onebot-fleet.sqlite3 --output /priva
 - cursor 跨重启保持，追加先 fsync 再原子更新 cursor；崩溃窗口可能重复导出，属于 **at-least-once**，不是 exactly-once。Windows 无通用目录 fsync 保证。
 - 每次最多读取 1000 条 incident，达到窗口上限明确提示 `journal_window_full`，不宣称导出完整历史。默认状态/事件查询也有输出上限，不是数据库保留期限。
 - 拒绝用 SQLite 主文件/sidecar、链接别名或不符合格式的既有文件当输出，拒绝损坏/异类 cursor，不自动覆盖修复。
-- 告警有记录不等于已送达邮件/Webhook/短信。**没有配置或验收外部通知出口，也没有部署 watcher/supervisor。** 如需值守，应另行授权操作系统 supervisor、离机监控及通知送达验证。
+- 告警有记录不等于已送达邮件/Webhook/短信。**没有配置或验收外部通知出口。** 受控测试部署已启动单独 watcher 进程，但没有安装操作系统服务、开机自启或 supervisor。如需值守，应另行授权 supervisor、离机监控及通知送达验证。
 - 同机独立 watcher 可在 Gateway 停止后看到记录变旧；watcher 自己退出、整台主机关机或磁盘失效仍需要更外层、必要时离机的心跳监控，不能由进程内 SQLite 冒充主机 HA。
 
 ## 6. 验收与升级边界
 
 离线验证覆盖分层观测、持久锁存/精确 reset、共享预算并发与恢复、原始年龄和派发时钟竞态、原生/publisher 同门禁、CLI 及无 QQ 告警导出。测试平台、已安装 Hermes 契约探针与 CI 记录见[测试地图](tests.md)。
 
-本阶段未更新任何运行中的 profile/插件，没有真实 QQ 消息、风控恢复、ACK 丢失、主机故障或外部通知送达验收。上线需要另行授权，停收业务后备份**全部 sidecar 及 SQLite WAL/SHM**，确认没有其他活动实例再升级，不能删除状态解除锁存、预算或未知结果。不能把旧版不认识 v0.5 sidecar 的降级当成安全回滚。
+源码阶段没有更新运行中的 profile。后续授权部署仅升级一个既有测试 profile：停收、冷备份原插件/config/全部 sidecar（含当时存在的 WAL/SHM）并校验独立 SQLite 快照；刷新原生插件缓存后恢复原有准入 revision/主角色。独立 watcher 已导出启动瞬态告警的恢复记录，另用隔离本地 fixture 检查观测不可用及重复合并；不修改实际健康记录作故障测试。详情见[部署验收范围](tests.md#guarded-v05-deployment-and-local-watcher--2026-10-19)。没有本版真实 QQ 消息、风控恢复、ACK 丢失、主机故障或外部通知送达验收。其他部署仍需授权和完整备份，不能删除状态解除锁存、预算或未知结果，也不能把旧版不认识 v0.5 sidecar 的降级当成安全回滚。

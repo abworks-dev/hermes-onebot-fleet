@@ -38,6 +38,8 @@ def test_policy_defaults_strict_mapping_and_frozen():
         "min_interval_seconds": 5,
         "target_interval_seconds": 10,
         "max_pending_age_seconds": 900,
+        "global_per_minute": 6,
+        "target_per_minute": 3,
     }
     with pytest.raises(FrozenInstanceError):
         policy.global_per_hour = 10
@@ -406,9 +408,10 @@ def test_completion_reads_latest_policy_and_later_tightening_uses_finish_anchor(
     DeliveryBudget(
         old.path, "fleet", BudgetPolicy(min_interval_seconds=1, target_interval_seconds=1), clock=clock
     )
-    # Already committed completion deadlines are never shortened by loosening.
-    assert old.reserve("next", "different")["next_at"] == 10040
-    assert old.reserve("next", "same")["next_at"] == 10050
+    # Tightening persists immediately, even with no intervening reservation.
+    # Neither that fence nor the earlier completion is shortened by loosening.
+    assert old.reserve("next", "different")["next_at"] == 10060
+    assert old.reserve("next", "same")["next_at"] == 10070
 
 
 def test_completion_of_old_key_cannot_be_hidden_by_newer_reservations(tmp_path):

@@ -12,6 +12,34 @@ gateway:
         logical_id: onebot-fleet
         state_path: state.sqlite3
         require_mention: true
+        reconnect:
+          initial_seconds: 1
+          max_seconds: 60
+          stable_seconds: 120
+          jitter_ratio: 0.25
+        reads:
+          health_interval_seconds: 60
+          idle_health_interval_seconds: 180
+          health_backoff_max_seconds: 600
+          member_interval_seconds: 15
+          member_account_interval_seconds: 2
+          member_global_per_minute: 30
+        # Local engineering guardrails, NOT platform-approved safe/anti-ban thresholds.
+        stoploss:
+          window_seconds: 300
+          account_failures: 3
+          account_targets: 3
+          fleet_failures: 4
+          fleet_targets: 3
+          fleet_accounts: 2
+        budget:
+          global_per_minute: 6
+          target_per_minute: 3
+          global_per_hour: 60
+          target_per_hour: 30
+          min_interval_seconds: 5
+          target_interval_seconds: 10
+          max_pending_age_seconds: 900
         accounts:
           - id: '10001'       # Example ONLY: primary bot QQ
             ws_url: ws://127.0.0.1:3001

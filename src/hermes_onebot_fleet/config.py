@@ -12,6 +12,9 @@ from urllib.parse import urlsplit
 
 from .delivery_budget import BudgetPolicy
 from .publisher import PublisherSettings
+from .read_requests import ReadPolicy
+from .reconnect import ReconnectPolicy
+from .stop_loss import StopLossPolicy
 
 
 def qq_id(value: object) -> str:
@@ -72,6 +75,9 @@ class Settings:
     require_mention: bool = True
     publisher: PublisherSettings = field(default_factory=PublisherSettings)
     budget: BudgetPolicy = field(default_factory=BudgetPolicy)
+    reads: ReadPolicy = field(default_factory=ReadPolicy)
+    reconnect: ReconnectPolicy = field(default_factory=ReconnectPolicy)
+    stoploss: StopLossPolicy = field(default_factory=StopLossPolicy)
 
     def __post_init__(self) -> None:
         if self.require_mention is not True:
@@ -90,6 +96,9 @@ class Settings:
             "require_mention",
             "publisher",
             "budget",
+            "reads",
+            "reconnect",
+            "stoploss",
             "group_sessions_per_user",
             "thread_sessions_per_user",
         }
@@ -134,4 +143,7 @@ class Settings:
             mention,
             PublisherSettings.from_mapping(mapping.get("publisher", {})),
             BudgetPolicy.from_mapping(mapping.get("budget", {})),
+            ReadPolicy.from_mapping(mapping.get("reads", {})),
+            ReconnectPolicy.from_mapping(mapping.get("reconnect", {})),
+            StopLossPolicy.from_mapping(mapping.get("stoploss", {})),
         )

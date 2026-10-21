@@ -8,6 +8,10 @@
 | logical_id | Profile platform extra | Durable session namespace | Keep stable during account failover; changing starts a new conversation namespace |
 | state_path | Profile platform extra | Relative to owning profile/plugin-data/onebot-fleet, or explicit absolute path | Fleet ledger contains text/QQ IDs; do not share directories across profiles; protect backups |
 | require_mention | Profile platform extra | Must be true | False is rejected |
+| budget.global_per_minute / target_per_minute | Fleet platform extra, not publisher | Shared rolling 60-second caps, default 6/3 | Integers 1..3600; combined with hourly caps/pacing, persistent attempts across accounts/clients/restarts |
+| reads.* | Fleet platform extra | Health 60s, idle 180s, failure backoff max 600s; member target/account intervals 15/2s, shared 30/min | Strict finite positive limits; read-only permits persist, no permission cache or refund |
+| reconnect.* | Fleet platform extra | Initial/max/stable seconds 1/60/120, jitter_ratio .25 | Local WS only, not QQ login; short flaps do not reset backoff; restart does reset this process-local timer |
+| stoploss.* | Fleet platform extra | 300s window; account 3 failures/3 targets; Fleet 4 failures/3 targets/2 accounts | Any latched aggregate hold vetoes Fleet delivery; explicit scoped reset only, not platform-ban diagnosis or automatic switching |
 | budget.global_per_hour / target_per_hour | Fleet platform extra, not publisher | Shared across all accounts and native/publisher entries; default 60/30 | Persisted charged attempts, no refund/account-switch reset; integers 1..3600 |
 | budget.min_interval_seconds / target_interval_seconds | Fleet platform extra | Default 5/10 seconds, both apply | Finite 1..3600; completion and exclusive-owner recovery extend fences |
 | budget.max_pending_age_seconds | Fleet platform extra | Original work age, default 900 seconds | Finite 1..86400; distinct from publisher 24h text-retention TTL; no fresh age on retry |
@@ -50,6 +54,14 @@ headers on all paths; do not enable HTTP debug/access logs that capture tokens o
   stores stable intent/target hashes, permanent charges, completion/recovery pacing and policy.
   Neither contains tokens or message bodies, but neither is disposable or a safe public artifact.
   Health/incident histories have no automatic general pruning. Status output limits are not retention.
+- Source hardening adds `<ledger>.reads.sqlite3` for persistent member-query permits/fences/audit,
+  and `<ledger>.stoploss.sqlite3` for actual-dispatch failure evidence, intent dedup, independent
+  account/Fleet holds and manual-reset sequence watermarks. Both store hashes/metadata, not credentials
+  or message bodies. Preserve them with the ledger; no clearing/refund CLI. Exact CLI inspection opens
+  existing files only. New budget v3 adds rolling-minute caps; constructor-only transactional v2
+  migration preserves old charges/tombstones/fences, diagnostics reject legacy without mutation.
+  Back up all sidecars while stopped before a separately authorized deployment; old-code downgrade
+  or deleting state is not a safe rollback. See [migration and controls](resilience.md).
 - Optional alert JSONL and its `.cursor.json` are local, at-least-once observer output/state, not QQ
   delivery or a configured external notification destination. Protect their paths and back them up;
   missing/unreadable/stale health is reported by an independently run consumer, not by installing a

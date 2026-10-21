@@ -48,7 +48,13 @@ a still-eligible primary; manual promotion is separate from admission. Group sen
 actual membership using get_group_member_info. Read-only target-only preflight failure
 can try another account; a send itself is NEVER replayed automatically on a different account.
 If all accounts are offline, native send returns failure, not a false delivery acknowledgment.
-Health is probed every 5 seconds and connections reconnect with capped exponential backoff.
+The local monitor ticks about every 5 seconds; actual read-only health RPCs are single-flight,
+due every 60 seconds normally, 180 seconds while idle/held, with failure backoff capped at 600.
+Initial socket identity verification remains fresh and old-socket results cannot verify a replacement.
+Group preflight consumes independent durable shared permits, never cached positive membership;
+a non-reserving send-budget veto runs before it. Reconnect uses per-account jittered exponential
+backoff and only resets after 120 seconds of continuously verified health, not a short successful flap.
+These source changes are offline-tested, not a live profile upgrade or QQ-side request measurement.
 A connected account is not necessarily able to speak in every group (mute/risk controls may differ).
 
 Before dispatch, `sending` record includes chosen account and complete text. A confirmed

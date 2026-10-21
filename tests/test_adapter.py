@@ -146,6 +146,18 @@ def make(module, tmp_path, *, anchors=True):
         budget_path, "onebot-fleet", adapter.settings.budget, clock=progressing_clock
     )
     adapter._budget_wait = {}
+    from hermes_onebot_fleet.read_requests import ReadRequests
+
+    adapter._reads = ReadRequests(
+        tmp_path / "reads.db", "onebot-fleet", adapter.settings.reads, clock=progressing_clock
+    )
+    adapter._reads_failed = False
+    from hermes_onebot_fleet.stop_loss import StopLoss
+
+    adapter._stoploss = StopLoss(
+        tmp_path / "stoploss.db", "onebot-fleet", adapter.settings.stoploss, clock=lambda: now[0]
+    )
+    adapter._stoploss_failed = False
     adapter._health = HealthState(tmp_path / "health.db", "onebot-fleet")
     if anchors:
         for key in ("inbound-1", "logical-inbound", "incoming-one", "incoming-two"):

@@ -37,6 +37,12 @@ NapCat 备号 ──认证 WebSocket──┘
 
 详见[架构与可靠性边界](documentation/architecture.md)、[权限](documentation/permissions.md)和[测试地图](documentation/tests.md)。
 
+## 本次源码改进：减少异常流量，而非承诺“防封”
+
+参考外部实践，依次补充了：**只读请求节流 → 重连稳定性 → 跨目标失败聚合止损 → 分钟级突发限制**。正常健康巡检默认 60 秒、闲置 180 秒；成员预检独立持久配额；短暂断连不重置指数退避；多目标失败形成必须人工精确解除的持久业务 hold，不能靠换号、重启或 `health reset` 解除；全部入口共用滚动分钟 6/目标 3 次与原小时上限。
+
+**本次仅修改仓库并做离线验证，未升级运行中的 profile，未重启 Gateway/NapCat，未操作真实 QQ。** 数值是可配置本地工程保护，不是腾讯的安全阈值；不新增 typing、拟人打字、自动试发或 unknown 补发。新增 `reads` / `stoploss` 本地诊断，预算库 v2→v3 仅在受控启动构造时事务迁移，CLI 不迁移，历史占用不清空。部署前须另行授权、停收并备份全部状态。详见[策略、参数、人工解除与迁移](documentation/resilience.md)和[本次离线验证](documentation/tests.md)。
+
 ## v0.5 P1/P2：分层健康、共享预算与本地告警
 
 新增身份/传输/在线/后台/目标独立观测和持久锁存 circuit，全部账号的原生回复与 publisher 共用一个预算，按原始年龄拒绝旧任务并保留未知结果不重放。提供 `health`、`budget`、`alerts` 本地 CLI 与可独立运行的 JSONL 告警消费器，业务池不可用无需依赖 QQ 来记录告警。

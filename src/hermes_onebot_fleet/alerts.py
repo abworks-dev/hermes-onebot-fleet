@@ -290,8 +290,8 @@ class AlertWatcher:
                 record.update(version=1, kind="health_alert", exported_at=now, logical_id=logical_id)
                 self._validate_record(record)
                 records.append(record)
-            updated = [_timestamp(account["updated_at"]) for account in snapshot["accounts"]]
-            state = "stale" if not updated or now - max(updated) > self.stale_after else "healthy"
+            updated = health.observer_updated_at()
+            state = "stale" if updated is None or now - updated > self.stale_after else "healthy"
             return logical_id, state, records, len(alerts) == 1000
         except (OSError, sqlite3.Error, ValueError, TypeError, KeyError, RuntimeError):
             # Never serialize exception strings, SQL, paths, credentials, or inputs.

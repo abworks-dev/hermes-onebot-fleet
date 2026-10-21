@@ -1,6 +1,7 @@
 """Offline operator tooling: no connection or credential reads."""
 
 import argparse
+import hashlib
 import json
 import math
 import shutil
@@ -11,6 +12,8 @@ from pathlib import Path
 from .account_state import AccountState
 from .delivery_budget import DeliveryBudget
 from .health import HealthState
+from .read_requests import ReadRequests
+from .stop_loss import StopLoss
 from .store import Store
 
 
@@ -45,6 +48,18 @@ def main():
     budget = commands.add_parser("budget", help="Inspect shared budget; never refund or clear reservations")
     budget.add_argument("--state", required=True, type=Path)
     budget.add_argument("--action", choices=["status", "audit"], default="status")
+    reads = commands.add_parser("reads", help="Inspect local read-request permits; no QQ queries")
+    reads.add_argument("--state", required=True, type=Path)
+    reads.add_argument("--action", choices=["status", "audit"], default="status")
+    stoploss = commands.add_parser(
+        "stoploss", help="Inspect aggregate business holds or explicitly reset one scope; no QQ probes"
+    )
+    stoploss.add_argument("--state", required=True, type=Path)
+    stoploss.add_argument("--action", choices=["status", "audit", "reset"], default="status")
+    stoploss.add_argument("--scope", choices=["account", "fleet"])
+    stoploss.add_argument("--account")
+    stoploss.add_argument("--reason")
+    stoploss.add_argument("--confirm", action="store_true")
     alerts = commands.add_parser(
         "alerts", help="Export alerts independently of QQ; does not install a service"
     )
@@ -58,7 +73,7 @@ def main():
     )
     stage.add_argument("--hermes-home", required=True, type=Path)
     args = parser.parse_args()
-    if args.command in {"health", "budget", "alerts"}:
+    if args.command in {"health", "budget", "reads", "stoploss", "alerts"}:
         if not args.state.is_file():
             parser.error("state database does not exist")
         try:
@@ -78,9 +93,33 @@ def main():
                         break
                     time.sleep(args.interval)
                 return
-            if args.command == "budget":
-                state = DeliveryBudget.open_existing(
-                    args.state.with_name(args.state.name + ".budget.sqlite3")
+            if args.command == "stoploss":
+                state = StopLoss.open_existing(args.state.with_name(args.state.name + ".stoploss.sqlite3"))
+                if args.action != "reset":
+                    if (
+                        args.scope is not None
+                        or args.account is not None
+                        or args.reason is not None
+                        or args.confirm
+                    ):
+                        parser.error("stoploss inspection does not accept mutation arguments")
+                    result = state.status() if args.action == "status" else {"audit": state.audit()}
+                else:
+                    if not args.confirm or not args.reason or not args.scope:
+                        parser.error("stoploss reset requires --scope, --reason and --confirm")
+                    if args.scope == "fleet" and args.account is not None:
+                        parser.error("fleet reset does not accept --account")
+                    if args.scope == "account":
+                        if not args.account:
+                            parser.error("account reset requires --account")
+                        account_hash = hashlib.sha256(args.account.encode("utf-8")).hexdigest()
+                        if account_hash not in state.status()["account_windows"]:
+                            parser.error("unknown recorded account")
+                    result = state.reset(args.account, reason=args.reason)
+            elif args.command in {"budget", "reads"}:
+                store_type = DeliveryBudget if args.command == "budget" else ReadRequests
+                state = store_type.open_existing(
+                    args.state.with_name(args.state.name + f".{args.command}.sqlite3")
                 )
                 result = state.status() if args.action == "status" else {"audit": state.audit()}
             else:

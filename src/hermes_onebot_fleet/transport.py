@@ -6,6 +6,8 @@ import asyncio
 import inspect
 import json
 import logging
+import random
+import time
 import uuid
 from collections.abc import Callable, Mapping
 from contextlib import suppress
@@ -14,6 +16,8 @@ from typing import Any
 import aiohttp
 
 from .config import Account, qq_id
+from .read_requests import ReadPolicy
+from .reconnect import ReconnectPolicy
 
 log = logging.getLogger(__name__)
 
@@ -33,8 +37,8 @@ class ActionUncertain(RuntimeError):
 
 class OneBotConnection:
     MAX_MESSAGE_BYTES = 256 * 1024
-    BACKOFF_INITIAL = 0.25
-    BACKOFF_MAX = 15.0
+    BACKOFF_INITIAL = 1.0
+    BACKOFF_MAX = 60.0
 
     def __init__(
         self,
@@ -43,11 +47,28 @@ class OneBotConnection:
         on_event: Callable[[dict[str, Any]], Any],
         *,
         on_observation: Callable[[dict[str, Any]], Any] | None = None,
+        reads: ReadPolicy | None = None,
+        clock: Callable[[], float] = time.monotonic,
+        reconnect: ReconnectPolicy | None = None,
+        random_sample: Callable[[], float] = random.random,
+        sleep: Callable[[float], Any] = asyncio.sleep,
     ):
         self.account = account
         self._token = token
         self._on_event = on_event
         self._on_observation = on_observation
+        self._reads = ReadPolicy() if reads is None else reads
+        self._clock = clock
+        self._reconnect = ReconnectPolicy() if reconnect is None else reconnect
+        self.BACKOFF_INITIAL = self._reconnect.initial_seconds
+        self.BACKOFF_MAX = self._reconnect.max_seconds
+        self._random_sample, self._sleep = random_sample, sleep
+        self._verified_since = None
+        self._health_task: asyncio.Task | None = None
+        self._health_ws = None
+        self._health_next_at = 0.0
+        self._health_finished_at = None
+        self._health_backoff = self._reads.health_interval_seconds
         self._session: aiohttp.ClientSession | None = None
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._runner: asyncio.Task | None = None
@@ -99,6 +120,11 @@ class OneBotConnection:
             with suppress(asyncio.CancelledError):
                 await self._runner
             self._runner = None
+        if self._health_task is not None:
+            self._health_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._health_task
+            self._health_task = None
         if self._session is not None:
             await self._session.close()
             self._session = None
@@ -146,7 +172,47 @@ class OneBotConnection:
             elif not future.cancelled():
                 future.exception()  # consume a concurrent disconnect exception
 
-    async def check_health(self) -> bool:
+    async def check_health(self, *, periodic: bool = False, idle: bool = False) -> bool:
+        """Coalesce checks on the same socket; periodic callers obey cooldown.
+
+        A new socket always requires fresh identity verification. Explicit checks
+        are used for initial verification; normal scheduling must use periodic=True.
+        Cancellation of one waiter cannot cancel the shared read sequence.
+        """
+        ws = self._ws
+        if ws is None or ws.closed:
+            return False
+        task = self._health_task
+        if task is not None and not task.done() and self._health_ws is ws:
+            return await asyncio.shield(task)
+        due = self._health_next_at
+        if idle and self._health_finished_at is not None:
+            due = max(due, self._health_finished_at + self._reads.idle_health_interval_seconds)
+        if periodic and self._health_ws is ws and self._clock() < due:
+            return self.healthy
+        # An old socket's read may finish later, but cannot authenticate this one.
+        if task is not None and not task.done():
+            task.cancel()
+        self._health_ws = ws
+        task = self._health_task = asyncio.create_task(self._scheduled_health(ws, idle))
+        return await asyncio.shield(task)
+
+    async def _scheduled_health(self, ws, idle) -> bool:
+        verified = await self._probe_health()
+        if self._ws is ws:
+            interval = (
+                self._reads.idle_health_interval_seconds if idle else self._reads.health_interval_seconds
+            )
+            if verified:
+                self._health_backoff = self._reads.health_interval_seconds
+            else:
+                self._health_backoff = min(self._health_backoff * 2, self._reads.health_backoff_max_seconds)
+                interval = max(interval, self._health_backoff)
+            self._health_finished_at = self._clock()
+            self._health_next_at = self._health_finished_at + interval
+        return verified
+
+    async def _probe_health(self) -> bool:
         # A periodic probe must not create an event-loss window on a connection
         # whose identity was already verified. New sockets start unverified.
         ws = self._ws
@@ -170,8 +236,21 @@ class OneBotConnection:
         # A late response from an obsolete probe cannot authenticate a new socket.
         if self._ws is not ws:
             return False
+        was_healthy = self._healthy
         self._identity, self._online, self._good = identity, online, good
         self._healthy = verified and self.connected
+        await self._emit_observation()
+        if not self._healthy:
+            self._verified_since = None
+        elif not was_healthy or self._verified_since is None:
+            self._verified_since = self._clock()
+        if self._healthy:
+            self._ready.set()
+        else:
+            self._ready.clear()
+        return self._healthy
+
+    async def _emit_observation(self) -> None:
         if self._on_observation is not None:
             try:
                 result = self._on_observation(self.observation)
@@ -180,11 +259,6 @@ class OneBotConnection:
             except Exception:
                 self._healthy = False
                 log.error("OneBot observation persistence failed; readiness denied")
-        if self._healthy:
-            self._ready.set()
-        else:
-            self._ready.clear()
-        return self._healthy
 
     def _get_token(self) -> str:
         token = self._token() if callable(self._token) else self._token
@@ -210,19 +284,34 @@ class OneBotConnection:
                         timeout=aiohttp.ClientWSTimeout(ws_close=0.5),
                     ) as ws:
                         self._ws = ws
+                        self._identity, self._online, self._good = "unknown", None, None
+                        self._health_finished_at = None
                         reader = asyncio.create_task(self._read(ws))
                         worker = asyncio.create_task(self._dispatch())
                         if not await self.check_health():
                             raise ConnectionError("OneBot identity or online status not confirmed")
-                        delay = self.BACKOFF_INITIAL
                         await reader
                 except (aiohttp.ClientError, OSError, ValueError, ConnectionError, TimeoutError):
                     pass  # Never log exceptions carrying endpoint headers or peer data.
                 finally:
+                    # A briefly authenticated socket is still a flap. Only a
+                    # continuously healthy interval may reset connection backoff.
+                    if (
+                        self._healthy
+                        and self._verified_since is not None
+                        and self._clock() - self._verified_since >= self._reconnect.stable_seconds
+                    ):
+                        delay = self.BACKOFF_INITIAL
+                    self._verified_since = None
                     self._healthy = False
                     self._ready.clear()
                     self._fail_pending()
                     self._ws = None
+                    if self._health_task is not None and not self._health_task.done():
+                        self._health_task.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await self._health_task
+                    await self._emit_observation()
                     for task in (reader, worker):
                         if task is not None:
                             task.cancel()
@@ -231,7 +320,7 @@ class OneBotConnection:
                     while not self._events.empty():
                         self._events.get_nowait()
                 if not self._stopping:
-                    await asyncio.sleep(delay)
+                    await self._sleep(self._reconnect.delay(delay, self._random_sample()))
                     delay = min(delay * 2, self.BACKOFF_MAX)
         finally:
             self._healthy = False

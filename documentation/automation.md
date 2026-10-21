@@ -12,7 +12,11 @@ the example starts with an empty platform toolset. There is no extra custom appr
 
 Steering is limited to the registered platform_hint. Hard controls are the endpoint/identity checks,
 owner+group policy, structured mention parsing, canonical target validation, single-process lock,
-dedup ledger and no automatic retry after an uncertain send. Prompts are NOT an authorization boundary.
+dedup ledger and no automatic retry after an uncertain send. Source hardening adds shared persistent
+read-only member-query permits, due/single-flight health reads, stable reconnect backoff, aggregate
+failure business holds and rolling minute/hour send budgets. These are application-owned controls,
+not agent tools or platform-ban detection; manual scoped reset cannot resurrect an uncertain intent.
+See [resilience and deployment boundaries](resilience.md). Prompts are NOT an authorization boundary.
 The output contract is native SendResult, with retryable=false for failure/uncertainty; confirmed sends
 require a remote message_id. Text is escaped by structured segments, not interpreted as CQ commands.
 

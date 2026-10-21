@@ -9,6 +9,7 @@ from hermes_onebot_fleet import cli
 from hermes_onebot_fleet.account_state import AccountState
 from hermes_onebot_fleet.delivery_budget import BudgetPolicy, DeliveryBudget
 from hermes_onebot_fleet.health import HealthState
+from hermes_onebot_fleet.read_requests import ReadPolicy, ReadRequests
 from hermes_onebot_fleet.store import Store
 
 
@@ -75,6 +76,26 @@ def test_budget_cli_inspects_without_refund(tmp_path, monkeypatch, capsys, actio
     run(monkeypatch, "budget", ledger, "--action", action)
     json.loads(capsys.readouterr().out)
     assert budget.status()["reservations_total"] == 1
+
+
+@pytest.mark.parametrize("action", ["status", "audit"])
+def test_reads_cli_does_not_probe_or_mutate(tmp_path, monkeypatch, capsys, action):
+    ledger, _ = state(tmp_path)
+    reads = ReadRequests(
+        ledger.with_name(ledger.name + ".reads.sqlite3"), "onebot-fleet", ReadPolicy(), clock=lambda: 1000
+    )
+    reads.reserve_member("10001", "obf:onebot-fleet:group:30001")
+    before = reads.status()
+    run(monkeypatch, "reads", ledger, "--action", action)
+    json.loads(capsys.readouterr().out)
+    assert reads.status() == before
+
+
+def test_missing_reads_cli_never_initializes(tmp_path, monkeypatch):
+    ledger, _ = state(tmp_path)
+    with pytest.raises(SystemExit):
+        run(monkeypatch, "reads", ledger)
+    assert not ledger.with_name(ledger.name + ".reads.sqlite3").exists()
 
 
 def test_alerts_exports_without_a_qq_connection(tmp_path, monkeypatch, capsys):

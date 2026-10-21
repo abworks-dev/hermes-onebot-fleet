@@ -1,5 +1,21 @@
 # Verification map
 
+## 风控经验落地 — source/offline hardening, 2026-10-22
+
+本次按顺序完成只读节流、重连稳定性、跨目标失败聚合止损、分钟级突发上限。仅改仓库代码/测试/示例/文档；**没有升级既有 profile，没有重启 Gateway/NapCat，没有操作真实 QQ，也没有本次实测腾讯侧请求数或解限效果**。历史部署记录不构成本次部署。以下新测试使用临时 SQLite、伪时钟和 fake RPC；保留原有本机假服务测试，不访问 QQ。
+
+| 新保护 | 离线覆盖 |
+|---|---|
+| 独立成员查询预算 | [ReadRequests](../tests/test_read_requests.py)：严格参数与 schema、滚动窗口、跨句柄/进程并发、重启/回拨、策略收紧与持久间隔、不退还占用、损坏/存储故障 fail-closed |
+| 健康巡检节流与本地心跳分离 | [Request guards](../tests/test_request_guards.py)：正常/闲置/失败退避、断线零查询、single-flight/取消、旧 socket 不认证新连接、预算否决先于预检、不缓存正向权限、observer stale 不被巡检降频误触发 |
+| 本地连接稳定性 | [Reconnect](../tests/test_reconnect.py)：指数上限/jitter 边界、短抖动不重置、持续验证稳定期、健康失败中断、取消/Token 刷新、账号独立及无隐式登录 |
+| 持久聚合 hold | [StopLoss](../tests/test_stop_loss.py)：不同目标/账号阈值、原意图永久去重、手动精确水位、重启/回拨/并发/策略变更、损坏与事务失败 |
+| 聚合业务与操作边界 | [Integration](../tests/test_stoploss_integration.py)、[CLI](../tests/test_stoploss_cli.py)：原生/publisher/换主同门禁、保留入站授权、health reset 不清聚合 hold、派发前故障不记聚合失败、派发中最终复核、unknown 三种情形永久不重放、无网络诊断与精确确认解除 |
+| 滚动分钟硬上限与 v2→v3 | [Burst budget](../tests/test_burst_budget.py)：四种窗口及两类间隔同时生效、准确截止/空闲不攒额度、check 不构成 permit、跨线程/进程并发、完整旧库验证/原子迁移/失败回滚/诊断零写入、旧占用和永久 tombstone 保留 |
+| 分钟预算提前否决 | [Burst integration](../tests/test_burst_integration.py)：原生/不同 client/换主/重启共用目标额度；全局耗尽后新群不查询成员；未派发原 ID 延期、到期仅发一次 |
+
+最终完整回归：**Windows / Python 3.12.11，1201 tests + 39 subtests passed，100.65s**；`ruff check --no-cache src tests` 全部通过，`ruff format --check src tests` 为 **44 files already formatted**，`git diff --check` 通过。相同环境修改前基线为 627 tests + 39 subtests passed（57.57s）。本次未运行新版 Linux/Python 3.14 CI 或已安装 Hermes 的升级探针；以上不是生产可用或“免封”验收。
+
 ## v0.5 P1/P2 — source/offline verification, 2026-10-19
 
 Complete local Windows/Python 3.12 regression: **627 tests + 39 subtests passed in 79.43s**.

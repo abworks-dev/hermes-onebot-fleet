@@ -479,6 +479,21 @@ class HealthState:
             ]
             return {"logical_id": self.logical_id, "accounts": accounts, "circuits": circuits}
 
+    def observer_updated_at(self) -> float | None:
+        """Local monitor heartbeat, distinct from remote probe/account freshness.
+
+        The monitor reports pool availability on every local tick. Legacy journals
+        without these events fall back to their last real account observation.
+        Offline CLI resets are deliberately not observer heartbeats.
+        """
+        with self._db() as db:
+            row = db.execute(
+                "SELECT max(timestamp) FROM health_events WHERE code IN ('pool_available','pool_unavailable')"
+            ).fetchone()[0]
+            if row is None:
+                row = db.execute("SELECT max(updated_at) FROM health_accounts").fetchone()[0]
+            return None if row is None else self._timestamp(row)
+
     def events(self, limit: int = 100) -> list[dict]:
         """Newest-first bounded audit; reasons are one-way IDs, never input text."""
         limit = self._limit(limit)

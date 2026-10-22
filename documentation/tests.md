@@ -1,5 +1,36 @@
 # Verification map
 
+## v0.6 host-neutral core and AstrBot — existing offline coverage
+
+Source-only refactor; no running profile upgrade, live AstrBot/QQ startup, credential change, ledger reset or remote release. All new dynamic tests use temporary state and host doubles; static host contract review is pinned to AstrBot `1b10813c70949071fa11153cc4ec8c51421d13d0` and is not a real-instance acceptance.
+
+Final local Windows / Python 3.12 regression: **1254 tests + 39 subtests passed in 135.76s** (before refactor: 1201 + 39). The focused core/AstrBot/staged-artifact/CLI/identity set passed **58 tests**. `ruff check src tests tools plugin astrbot_plugin_onebot_fleet` and format-check passed (**70 files already formatted**); `git diff --check` passed. One initial full run failed only because the staged-artifact fixture omitted the newly mandatory platform `enable: true`; the fixture was corrected without relaxing the guard, then the whole suite was rerun successfully.
+
+| Use case / documented rule | Expected result, including denial | Existing evidence |
+|---|---|---|
+| Host-independent safety orchestration | Core imports no host; explicit secrets; admission/revision, sticky routing, shared budgets and holds still gate sends; unknown is final | [Core tests](../tests/test_core.py), original safety suites below; [architecture](architecture.md), [contract](astrbot.md) |
+| Hermes compatibility | Original platform/plugin identifiers, canonical targets and default state path stay unchanged; duplicate temporary stage refused | [Identity and native loader](../tests/test_identity.py), [CLI](../tests/test_cli.py), old adapter/integration suites |
+| AstrBot activation and lifecycle | Disabled/inactive platform cannot construct/connect; initialized Star grants its own platform; revoke before terminate; no import-time activation | [AstrBot tests](../tests/test_astrbot.py); [integration contract](astrbot.md) |
+| Anchored pure-text delivery | True human and stable UMO; entire non-Plain chain denied; same-event concurrent duplicate shares a key; ACK required before base success; failure/cancel latches later sends | [AstrBot tests](../tests/test_astrbot.py); [permissions](permissions.md) |
+| Context and proactive boundaries | Only current active same immutable UMO is accepted; unanchored public event, raw client and stream denied; publisher remains separately authorized | [AstrBot tests](../tests/test_astrbot.py), existing publisher suites; [flows](flows.md) |
+| Self-contained plugin staging | Uses only plugin-local vendored core/policy classes, no global host package alias; no state file or network on import/construction; inactive/revoked plugin denied | [Staged artifact test](../tests/test_packaging.py), [CLI tests](../tests/test_cli.py) |
+
+### Proposed acceptance — not executed
+
+| Type | Check / expected denial | Status |
+|---|---|---|
+| Guarded host integration | Real pinned AstrBot cold start/stop with no accounts; disabled plugin must start no platform; unload affects only owned instances | Proposed, no instance run |
+| Guarded live | Separately authorized QQ text and same-group failover; UMO remains stable; ACK loss/cancel never causes replay | Proposed, no QQ action |
+| Automated + guarded plugin integration | PC/MC must use explicit Fleet receipts, not host `after_sent`; media or unsupported client paths must fail visibly | Proposed, no compatibility verdict |
+| Manual migration review | Preserve complete ledger/sidecar history, namespace and post-cutover terminal states; one connection owner | Proposed, no running profile touched |
+
+### Gaps and non-guarantees
+
+- **High: host/plugin end-to-end behavior.** Host doubles and source review cannot prove the real runtime or companion plugin integration. AstrBot may call the first `after_sent` hook after an exception; do not treat it as ACK. Same-process Python plugins are not sandboxed.
+- **Medium: packaging installation.** Source staging is tested, but wheel build/install acceptance was not completed: the local build failed at the final file replacement with `PermissionError`. No alternate-shell/path retry or ACL change was used; the generated temporary artifact was removed after exact path/hash verification. No package was installed in a managed Hermes environment.
+- **Out of scope:** media, active UMO sends, private offline-message recovery, OS/process high availability, universal host-version compatibility and immunity from account restrictions.
+- The v0.6 checks are local only; no remote CI job or branch-protection requirement was verified in this run. Historical CI results below apply only to their recorded revisions.
+
 ## 风控经验落地 — source/offline hardening, 2026-10-22
 
 本次按顺序完成只读节流、重连稳定性、跨目标失败聚合止损、分钟级突发上限。仅改仓库代码/测试/示例/文档；**没有升级既有 profile，没有重启 Gateway/NapCat，没有操作真实 QQ，也没有本次实测腾讯侧请求数或解限效果**。历史部署记录不构成本次部署。以下新测试使用临时 SQLite、伪时钟和 fake RPC；保留原有本机假服务测试，不访问 QQ。
@@ -30,7 +61,7 @@ completion and was stopped; it is **not** counted as a side-effect-free probe. T
 selected site-packages directly without bootstrap/launch preparation. During that source-only phase
 no Fleet profile/plugin was upgraded or Gateway/NapCat restarted, and no QQ operation or external
 notification test was performed. Source commit `f0165f9` passed all four Windows/Linux × Python
-3.12/3.14 offline CI jobs ([run 39212419697](https://github.com/abworks-dev/hermes-onebot-fleet/actions/runs/39212419697)).
+3.12/3.14 offline CI jobs ([run 39212419697](https://github.com/abworks-dev/onebot-fleet/actions/runs/39212419697)).
 A later, separately approved scoped deployment/local-watcher check is recorded below.
 
 | Rule | Offline coverage |
@@ -92,7 +123,7 @@ using temporary plugin ledgers and a fake transport. The native retry body is in
 excluding only its metrics decorator to avoid emitting profile telemetry.
 The local host probe itself is **not** a full host-integration suite or live QQ test. Separately,
 source commit `289de62` passed all four Windows/Linux × Python 3.12/3.14 offline CI jobs
-([run 39201736434](https://github.com/abworks-dev/hermes-onebot-fleet/actions/runs/39201736434)).
+([run 39201736434](https://github.com/abworks-dev/onebot-fleet/actions/runs/39201736434)).
 During that implementation phase no profile plugin was upgraded or Gateway reloaded. A subsequent,
 separately authorized test-profile deployment is recorded below; it is not a QQ message acceptance.
 

@@ -1,3 +1,3 @@
-"""Native Hermes OneBot Fleet adapter. Importing this package needs no Hermes runtime."""
+"""Compatibility namespace and Hermes adapter for onebot-fleet; no eager host imports."""
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"

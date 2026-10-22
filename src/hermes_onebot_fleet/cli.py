@@ -72,6 +72,10 @@ def main():
         "stage-plugin", help="Stage new plugin source only; does not enable or change profile config"
     )
     stage.add_argument("--hermes-home", required=True, type=Path)
+    astrbot_stage = commands.add_parser(
+        "stage-astrbot", help="Stage a self-contained AstrBot plugin; never enables or starts it"
+    )
+    astrbot_stage.add_argument("--destination", required=True, type=Path)
     args = parser.parse_args()
     if args.command in {"health", "budget", "reads", "stoploss", "alerts"}:
         if not args.state.is_file():
@@ -188,8 +192,37 @@ def main():
         )
         return
     root = Path(__file__).resolve().parents[2]
+    source = root / "src"
+    packages = ("onebot_fleet", "hermes_onebot_fleet")
+    if args.command == "stage-astrbot":
+        template = root / "astrbot_plugin_onebot_fleet"
+        if not (template / "metadata.yaml").is_file() or not all(
+            (source / package / "__init__.py").is_file() for package in packages
+        ):
+            parser.error("stage-astrbot requires a complete source repository checkout")
+        destination = args.destination.resolve()
+        if destination.exists() or destination.is_symlink():
+            parser.error("destination exists; review and back it up manually before an upgrade")
+        shutil.copytree(template, destination, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        vendor = destination / "_vendor"
+        vendor.mkdir()
+        (vendor / "__init__.py").write_text(
+            '"""Plugin-local onebot-fleet runtime; do not add this directory to sys.path."""\n',
+            encoding="utf-8",
+        )
+        for package in packages:
+            shutil.copytree(
+                source / package,
+                vendor / package,
+                ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+            )
+        print("AstrBot plugin source staged. No platforms, accounts or credentials were changed.")
+        print("Review its README and use an isolated, stopped test instance before enabling it.")
+        return
     shim = root / "plugin"
-    if not (shim / "plugin.yaml").is_file():
+    if not (shim / "plugin.yaml").is_file() or not all(
+        (source / package / "__init__.py").is_file() for package in packages
+    ):
         parser.error(
             "stage-plugin requires the source repository checkout (wheel users should use a checkout)"
         )
@@ -202,14 +235,15 @@ def main():
     destination.mkdir(parents=True)
     shutil.copy2(shim / "plugin.yaml", destination / "plugin.yaml")
     shutil.copy2(shim / "__init__.py", destination / "__init__.py")
-    shutil.copytree(
-        Path(__file__).resolve().parent,
-        destination / "src" / "hermes_onebot_fleet",
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
-    )
+    for package in packages:
+        shutil.copytree(
+            source / package,
+            destination / "src" / package,
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+        )
     # Hermes PM reads plugin-local project dependencies. Never pip into its environment.
     (destination / "pyproject.toml").write_text(
-        '[project]\nname="hermes-onebot-fleet-directory"\nversion="0.5.0"\n'
+        '[project]\nname="onebot-fleet-directory"\nversion="0.6.0"\n'
         'requires-python=">=3.12,<3.15"\ndependencies=["aiohttp>=3.12,<4"]\n',
         encoding="utf-8",
     )

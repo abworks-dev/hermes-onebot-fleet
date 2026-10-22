@@ -1,0 +1,5 @@
+name: astrbot_plugin_onebot_fleet
+display_name: OneBot Fleet
+version: '0.6.0'
+author: abworks-dev
+desc: Conservative OneBot Fleet plain-text reply platform with durable delivery receipts.

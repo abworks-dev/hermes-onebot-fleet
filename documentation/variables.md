@@ -1,5 +1,7 @@
 # Variables and storage
 
+The table below describes Hermes profile configuration. For the v0.6 AstrBot branch, the same strict Fleet policy is nested under platform-instance `fleet`, and the host resolves only the explicitly named account/publisher environment variables before passing a credential mapping to `FleetCore`. Hermes-scoped secret lookup and `ONEBOT_FLEET_ALLOWED_USERS` are Hermes-only; they are not extra authorization in AstrBot. Keep the platform instance ID stable and use an explicit persistent state path. See [AstrBot setup and migration boundaries](astrbot.md); the schema never stores secret values.
+
 | Name | Consumer/source | Scope | Rotation/risk |
 |---|---|---|---|
 | accounts[].token_env | Name of a per-profile secret read via Hermes get_scoped_secret | Owning profile, never a config token value | Change matching NapCat WS token and profile secret; restart adapter; leaked token permits local bot control |

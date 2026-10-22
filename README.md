@@ -1,8 +1,53 @@
-# Hermes OneBot Fleet
+# onebot-fleet
 
-**实验性 v0.5.0 原生 Hermes 平台插件。P1/P2 已完成离线验证，以及另行授权的受控测试 profile 部署和独立本地告警运行检查；未做本版真实消息/故障注入或外部通知送达验收。v0.4 历史 P0 实测不覆盖本版。没有生产就绪、免封或 exactly-once 保证。**
+仓库：[abworks-dev/onebot-fleet](https://github.com/abworks-dev/onebot-fleet)（由原仓库更名，保留提交历史；旧 Python 包 / CLI 兼容入口不是漏改）。
 
-多个 NapCat / OneBot v11 账号作为同一 Hermes profile 的 QQ 入口。无需 NoneBot、外部 HTTP API 代理或修改 Hermes 核心。目前只支持文本；当前协议实现与验证范围仅限 OneBot v11 / NapCatQQ，不代表已兼容其他 OneBot 实现。**以下为历史 v0.2 系列验收记录，不覆盖 v0.3 publisher：** 更名前的同一实现已于 2026-10-18 完成本地真实双账号群聊主号回复、断开主号后由备号处理 @主号、恢复后回到主号的三条消息验收，账本为 3 条 `handed_off` / 3 条 `sent`。更名后的 v0.2.0 也已于同日完成相同三步实测：主号、备号、主号依次各回复一条，新增账本为 3 条 `handed_off` / 3 条 `sent`，无 `uncertain`，结束后双账号服务恢复。这些窄范围本地结果均不是生产验收。
+**实验性 v0.6.0：宿主无关安全内核 + Hermes / AstrBot 两个宿主边界。仅源码重构与离线验证；没有升级运行中的 profile，没有启动 AstrBot / QQ，没有本版真实消息或 PC 插件联调结果。没有免封、生产就绪或 exactly-once 保证。**
+
+```text
+NapCat / OneBot v11 主号、备号
+              │ 单一连接所有者
+              ▼
+      FleetCore（同进程）
+ 准入 / 去重 / 预算 / 止损 / 账本 / 保守回执
+              │ 选择一个宿主，不能同号双开
+       ┌──────┴──────┐
+  Hermes 薄适配层   AstrBot 原生平台
+                     │
+               陪伴插件 / Inbox / 任务后端（另行集成）
+```
+
+## v0.6 新入口与不变项
+
+- 发行包、CLI 主名为 `onebot-fleet`，Python 入口为 `onebot_fleet`。旧 `hermes_onebot_fleet` 导入与 `hermes-onebot-fleet` 命令保留兼容；安全收发算法只有一份。纯模块暂以旧包为单一源码、由新包按当前宿主命名空间导出，并非复制双份策略。
+- `FleetCore` 接收显式 `Settings`、状态路径、窄凭据映射及入站 handoff；不导入 Hermes / AstrBot，也不从环境隐式搜集凭据。
+- Hermes 平台 ID、插件 ID、`obf:` 逻辑目标、默认状态目录、账本和 sidecar 名称保持不变。**改发行名称不重置预算、准入、止损或 unknown。** 现有部署未被本次重构自动迁移。
+- AstrBot 使用独立平台类型 `onebot_fleet`，固定平台实例 ID，保留真实用户 ID。只接 FleetCore 已准入的群 / 私聊文本；同群跨号不新建会话，私聊离线消息不承诺跨号代收。
+- AstrBot 的普通回复、事件发送与当前事件内同会话的 `Context.send_message` 走相同 core 门禁；只接受整条纯 `Plain` 文本链。不提供 `aiocqhttp` / 原始 OneBot client，流式、主动 UMO 投递及媒体明确拒绝；可靠后台发送仍须走已授权的 durable publisher。
+- `sent + message_id` 仅表示 OneBot ACK，不是人已读、任务成功或宿主插件全局成功；`uncertain/unknown` 不自动补发、不因换号重发。
+
+### AstrBot 安装材料（不启用、不连接）
+
+从本仓库暂存自包含插件，不依赖尚未发布的 PyPI 包。下面仅示例，目标必须不存在：
+
+```powershell
+$env:PYTHONPATH = 'src'
+.\.venv\Scripts\python.exe -m onebot_fleet.cli stage-astrbot --destination '<全新目录>/astrbot_plugin_onebot_fleet'
+```
+
+生成目录含插件元数据、原生平台注册以及插件本地 `_vendor` 两个包；不修改 `sys.path`，不连接账号、不写令牌、不启用任何平台。现有目标拒绝覆盖。安装和配置见 [AstrBot 插件说明](astrbot_plugin_onebot_fleet/README.md) 与 [v0.6 接入与迁移](documentation/astrbot.md)。首版要求**安装后重启**，不承诺热装。
+
+**AstrBot 首版必须关闭分段回复、自动引用 / @、转图、TTS 和流式。** 固定宿主版本存在“发送失败仍触发首个 after_sent hook”的行为；适配层会失败锁存并阻止后续发送，但无法让该宿主钩子自动变成可靠回执。未验收的陪伴 / 记忆插件不得据此判定送达。完整边界见插件说明。
+
+### Hermes 兼容部署材料
+
+仍支持 `python -m hermes_onebot_fleet.cli stage-plugin --hermes-home '<全新隔离 profile>'`，也可用 `python -m onebot_fleet.cli`。暂存现在包含新旧两个包，仍不启用、不覆盖、不改 profile 配置；不要对 Hermes 托管环境执行 pip 安装。本次未执行对运行中 profile 的暂存或升级。
+
+## 历史版本记录与既有能力（不是 v0.6 实测）
+
+**以下 v0.5 及更早的部署 / 真实 QQ 记录仅属于各自版本，不能作为 v0.6 或 AstrBot 的验收。** 历史 v0.5 P1/P2 曾完成离线验证及另行授权的受控测试 profile 部署和独立本地告警运行检查，未做该版真实消息 / 故障注入或外部通知送达验收。
+
+此前多个 NapCat / OneBot v11 账号作为同一 Hermes profile 的 QQ 入口。无需 NoneBot、外部 HTTP API 代理或修改 Hermes 核心。目前只支持文本；当前协议实现与验证范围仅限 OneBot v11 / NapCatQQ，不代表已兼容其他 OneBot 实现。**以下为历史 v0.2 系列验收记录，不覆盖 v0.3 publisher：** 更名前的同一实现已于 2026-10-18 完成本地真实双账号群聊主号回复、断开主号后由备号处理 @主号、恢复后回到主号的三条消息验收，账本为 3 条 `handed_off` / 3 条 `sent`。更名后的 v0.2.0 也已于同日完成相同三步实测：主号、备号、主号依次各回复一条，新增账本为 3 条 `handed_off` / 3 条 `sent`，无 `uncertain`，结束后双账号服务恢复。这些窄范围本地结果均不是生产验收。
 
 ## v0.2.0 破坏性标识调整
 
@@ -89,8 +134,8 @@ worker 使用独立项目、venv 和不含 QQ/OneBot 凭据的 profile，仅持�
 uv sync --extra dev --no-install-project
 $env:PYTHONPATH = 'src'
 .\.venv\Scripts\python.exe -m pytest -q
-.\.venv\Scripts\python.exe -m ruff check src tests tools plugin
-.\.venv\Scripts\python.exe -m ruff format --check src tests tools plugin
+.\.venv\Scripts\python.exe -m ruff check src tests tools plugin astrbot_plugin_onebot_fleet
+.\.venv\Scripts\python.exe -m ruff format --check src tests tools plugin astrbot_plugin_onebot_fleet
 ```
 
 离线测试使用本机临时 WebSocket 模拟端，不会登录 QQ、调用模型或修改现有 profile。

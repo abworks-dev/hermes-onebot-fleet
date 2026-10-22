@@ -1,5 +1,7 @@
 # Permissions
 
+Core account, sender, target, revision, budget and publication rules apply to both v0.6 host adapters. References below to Hermes native gateway admission or `ONEBOT_FLEET_ALLOWED_USERS` describe the Hermes branch only. AstrBot has its own native platform/event bridge with anchored replies, strict text-only components and an explicit plugin activation gate; see [its permission and delivery contract](astrbot.md). The bridge does not sandbox arbitrary same-process Python plugins or supply Hermes tool approvals to AstrBot.
+
 | Actor/resource | Operation | Enforced rule | Deny outcome |
 |---|---|---|---|
 | NapCat account | Connect | Loopback URL, per-account Bearer token, get_login_info matches configured QQ, online=true | Unhealthy; no accepted inbound |

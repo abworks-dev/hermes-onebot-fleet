@@ -1,7 +1,7 @@
 name: onebot-fleet
 label: OneBot Fleet / NapCatQQ
 kind: platform
-version: 0.5.0
+version: 0.6.0
 author: abworks-dev
 description: Native multi-account OneBot 11 transport with strict permissions and conservative recovery
 provides_tools: []

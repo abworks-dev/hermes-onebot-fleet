@@ -1,5 +1,7 @@
 # Architecture and reliability boundaries
 
+v0.6 introduces a host-neutral `onebot_fleet.core.FleetCore` with Hermes and AstrBot host adapters. The diagram and native gateway details below describe the **Hermes compatibility branch**; AstrBot registration, UMO, lifecycle and ACK limitations are specified in [the AstrBot integration contract](astrbot.md). Both hosts use the same core policy and ledger implementation. Choose one active connection owner per account, not both hosts concurrently. This source change does not migrate a running profile or its state.
+
 ```
 NapCat A -- authenticated OneBot11 WS --\
                                        native adapter -> Hermes gateway -> Agent

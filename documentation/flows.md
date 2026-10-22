@@ -1,5 +1,7 @@
 # Protected flows
 
+The flows below retain the Hermes-specific host terminology. Since v0.6, connection, admission, ledger and delivery orchestration lives in `FleetCore`; the Hermes adapter only maps native host events/results and resolves profile credentials. The AstrBot branch instead hands admitted events to its native queue and requires the reply anchoring described in [the AstrBot contract](astrbot.md). Its queue handoff is not model completion, and host `after_sent` is not a delivery receipt. Neither host is enabled or migrated automatically by installing source.
+
 ## Owner text -> Agent
 
 Actor: admitted human. Preconditions: a verified NapCat account and owning Hermes profile.
